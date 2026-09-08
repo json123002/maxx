@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 本地数据库(含用户口令哈希,绝不入库)
+backend/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Node
+node_modules/
+
+# 前端构建产物(web/vite build 输出到此,nginx 直接指向)
+frontend/
+
+# 测试/临时
+.pytest_cache/
+_tmp/
