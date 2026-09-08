@@ -4,6 +4,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import config, db, scheduler
@@ -24,6 +25,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Turnover Screener API", lifespan=lifespan)
+# 直连 8000 端口(本地开发 dev:local)时也压缩 JSON;生产 nginx 已有一层 gzip
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.include_router(auth_routes.router)
 app.include_router(admin_routes.router)
 app.include_router(quote_routes.router)

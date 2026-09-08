@@ -7,6 +7,11 @@
    校验规则：用户名 ^[A-Za-z0-9_@.\-]{2,32}$ · 密码 6-128 位 · 角色 user|admin */
 import { onMounted, reactive, ref } from "vue";
 import { message } from "ant-design-vue";
+// 管理页专属重组件按需引入（不进全局注册,首页主包不带 Table/Select 等）
+import {
+  Popconfirm as APopconfirm, Radio as ARadio, RadioGroup as ARadioGroup,
+  Select as ASelect, SelectOption as ASelectOption, Table as ATable,
+} from "ant-design-vue";
 import { api } from "../api/client";
 import { authState } from "../stores/auth";
 
