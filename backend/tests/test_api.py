@@ -9,28 +9,45 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app import db, scheduler  # noqa: E402
+from app.fetcher import limit_flags  # noqa: E402
 from app.main import app  # noqa: E402
 from app.routes.quote_routes import build_filter_sql  # noqa: E402
 
 scheduler.start = lambda: None     # 测试不启动抓数调度
 scheduler.shutdown = lambda: None
 
+
+def _row(code, name, industry, market, f2, f3, f350=None, f351=None, **kw):
+    """构造快照行,f350/f351 为涨/跌停价,标记与 fetcher 同口径。"""
+    lu, ld = limit_flags(f2, f350, f351)
+    base = dict(code=code, name=name, industry=industry, market=market,
+                f2=f2, f3=f3, f18=None, f350=f350, f351=f351,
+                limit_up=lu, limit_down=ld,
+                f6=None, f7=None, f8=None, f9=None, f10=None,
+                f20=None, f21=None, f23=None, f24=None, f25=None)
+    base.update(kw)
+    return base
+
+
 SAMPLE = [
-    # 主板：涨停容差 9.8
-    dict(code="600001", name="测试钢铁", industry="钢铁", market="沪主板",
-         f2=10.0, f3=9.9, f6=5e8, f7=8.0, f8=12.0, f9=15.0, f10=2.0,
+    # 主板涨停:最新价 == 涨停价
+    _row("600001", "测试钢铁", "钢铁", "沪主板", 10.0, 10.01, f350=10.0, f351=8.19,
+         f6=5e8, f7=8.0, f8=12.0, f9=15.0, f10=2.0,
          f20=100e8, f21=80e8, f23=1.5, f24=20.0, f25=30.0),
-    dict(code="000001", name="ST测试", industry="银行", market="深主板",
-         f2=5.0, f3=-6.0, f6=2e8, f7=6.0, f8=9.0, f9=-3.0, f10=1.0,
+    # 主板 ST 跌停:限幅 5%,阈值法漏计的情形
+    _row("000001", "ST测试", "银行", "深主板", 5.0, -4.94, f350=5.52, f351=5.0,
+         f6=2e8, f7=6.0, f8=9.0, f9=-3.0, f10=1.0,
          f20=50e8, f21=50e8, f23=0.8, f24=-10.0, f25=-20.0),
-    # 创业板：涨停容差 19.6
-    dict(code="300001", name="测试科技", industry="半导体", market="创业板",
-         f2=20.0, f3=19.95, f6=8e8, f7=15.0, f8=25.0, f9=60.0, f10=3.0,
+    # 创业板涨停:20% 限幅
+    _row("300001", "测试科技", "半导体", "创业板", 20.0, 19.98, f350=20.0, f351=13.34,
+         f6=8e8, f7=15.0, f8=25.0, f9=60.0, f10=3.0,
          f20=200e8, f21=150e8, f23=5.0, f24=50.0, f25=80.0),
-    # 停牌：f2/f8 为空
-    dict(code="600002", name="停牌股", industry="钢铁", market="沪主板",
-         f2=None, f3=None, f6=None, f7=None, f8=None, f9=None, f10=None,
-         f20=None, f21=None, f23=None, f24=None, f25=None),
+    # 停牌：f2/f350/f351 为空
+    _row("600002", "停牌股", "钢铁", "沪主板", None, None),
+    # 非 ST 跌停（对照 ST 跌停被口径剔除）
+    _row("600003", "测试银行", "银行", "沪主板", 4.4, -10.02, f350=5.38, f351=4.4,
+         f6=1e8, f7=3.0, f8=5.0, f9=6.0, f10=0.8,
+         f20=40e8, f21=40e8, f23=0.7, f24=-8.0, f25=-15.0),
 ]
 
 
@@ -91,7 +108,7 @@ def test_quote_list_filters(client):
     assert r["total"] == 1 and r["rows"][0]["f12"] == "300001"
     # 不剔 ST → 000001 回来
     r = client.get("/api/quote/list?no_st=false", headers=h).json()
-    assert r["total"] == 3
+    assert r["total"] == 4
     # 行业 + 关键词
     r = client.get("/api/quote/list?industry=钢铁", headers=h).json()
     assert r["total"] == 1
@@ -102,11 +119,22 @@ def test_quote_list_filters(client):
 def test_quote_meta_stats(client):
     h = login(client, "admin", "admin123")
     m = client.get("/api/quote/meta", headers=h).json()
-    assert m["stats"]["valid"] == 3              # 停牌股不计
+    assert m["stats"]["valid"] == 4              # 停牌股不计
     assert m["stats"]["up"] == 2
-    assert m["stats"]["limit_up"] == 2           # 主板 9.9 与创业板 19.95 均算涨停
+    assert m["stats"]["down"] == 2               # 平盘不计入下跌
+    assert m["stats"]["limit_up"] == 2           # 主板/创业板封板各 1
+    assert m["stats"]["limit_down"] == 1         # 非 ST 跌停计入;ST 跌停按口径剔除
     names = {x["name"] for x in m["industries"]}
     assert names == {"钢铁", "银行", "半导体"}
+
+
+# ===== 涨跌停判定（最新价 vs 东财涨/跌停价）=====
+def test_limit_flags():
+    assert limit_flags(10.0, 10.0, 8.19) == (1, 0)        # 封涨停
+    assert limit_flags(9.0, 10.0, 8.19) == (0, 0)         # 差一截不算
+    assert limit_flags(5.0, 5.52, 5.0) == (0, 1)          # 封跌停(ST 5%)
+    assert limit_flags(40.0, None, None) == (0, 0)        # 新股无涨跌停价
+    assert limit_flags(None, None, None) == (None, None)  # 停牌
 
 
 # ===== 用户管理 =====

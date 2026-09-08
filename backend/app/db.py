@@ -1,8 +1,10 @@
 """SQLite 访问层：建表、种子管理员、快照读写。
 
 字段沿用东方财富接口字段名（f2 最新价 / f3 涨跌幅 / f6 成交额 / f7 振幅 /
-f8 换手率 / f9 市盈率 / f10 量比 / f20 总市值 / f21 流通市值 / f23 市净率 /
-f24 60日涨幅 / f25 年初至今涨幅），code/name/industry 对应 f12/f14/f100。
+f8 换手率 / f9 市盈率 / f10 量比 / f18 昨收 / f20 总市值 / f21 流通市值 /
+f23 市净率 / f24 60日涨幅 / f25 年初至今涨幅 / f350 涨停价 / f351 跌停价），
+code/name/industry 对应 f12/f14/f100。limit_up/limit_down 由 fetcher 按
+最新价是否达到 f350/f351 判定（0/1）。
 """
 import os
 import sqlite3
@@ -12,9 +14,10 @@ from . import config
 
 _local = threading.local()
 
-QUOTE_COLS = ["f2", "f3", "f6", "f7", "f8", "f9", "f10",
-              "f20", "f21", "f23", "f24", "f25"]
-ALL_COLS = ["code", "name", "industry", "market"] + QUOTE_COLS
+QUOTE_COLS = ["f2", "f3", "f6", "f7", "f8", "f9", "f10", "f18",
+              "f20", "f21", "f23", "f24", "f25", "f350", "f351"]
+LIMIT_COLS = ["limit_up", "limit_down"]
+ALL_COLS = ["code", "name", "industry", "market"] + QUOTE_COLS + LIMIT_COLS
 
 
 def get_conn() -> sqlite3.Connection:
@@ -40,7 +43,9 @@ def init_db() -> None:
             industry TEXT,
             market   TEXT,
             f2 REAL, f3 REAL, f6 REAL, f7 REAL, f8 REAL, f9 REAL,
-            f10 REAL, f20 REAL, f21 REAL, f23 REAL, f24 REAL, f25 REAL
+            f10 REAL, f18 REAL, f20 REAL, f21 REAL, f23 REAL, f24 REAL,
+            f25 REAL, f350 REAL, f351 REAL,
+            limit_up INTEGER, limit_down INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_latest_industry ON latest(industry);
         CREATE INDEX IF NOT EXISTS idx_latest_turnover ON latest(f8);
@@ -62,7 +67,9 @@ def init_db() -> None:
             industry   TEXT,
             market     TEXT,
             f2 REAL, f3 REAL, f6 REAL, f7 REAL, f8 REAL, f9 REAL,
-            f10 REAL, f20 REAL, f21 REAL, f23 REAL, f24 REAL, f25 REAL,
+            f10 REAL, f18 REAL, f20 REAL, f21 REAL, f23 REAL, f24 REAL,
+            f25 REAL, f350 REAL, f351 REAL,
+            limit_up INTEGER, limit_down INTEGER,
             UNIQUE (trade_date, code)
         );
         CREATE INDEX IF NOT EXISTS idx_history_date ON history(trade_date);
@@ -85,7 +92,19 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
         """
     )
+    _migrate_quote_cols(conn)
     conn.commit()
+
+
+def _migrate_quote_cols(conn) -> None:
+    """老库补列:昨收/涨跌停价 + 涨跌停标记（幂等）。"""
+    added = {"f18": "REAL", "f350": "REAL", "f351": "REAL",
+             "limit_up": "INTEGER", "limit_down": "INTEGER"}
+    for table in ("latest", "history"):
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for col, decl in added.items():
+            if col not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
 
 
 def seed_admin(hash_password) -> None:
@@ -132,13 +151,11 @@ def replace_latest(rows, source: str, error: str = None) -> None:
 def save_history(trade_date: str) -> int:
     """把当前 latest 落一份到 history（每日收盘后调用）。"""
     conn = get_conn()
+    cols = ",".join(ALL_COLS)
     with conn:
         cur = conn.execute(
-            "INSERT OR REPLACE INTO history"
-            " (trade_date, code, name, industry, market, f2, f3, f6, f7, f8,"
-            "  f9, f10, f20, f21, f23, f24, f25)"
-            " SELECT ?, code, name, industry, market, f2, f3, f6, f7, f8,"
-            "        f9, f10, f20, f21, f23, f24, f25 FROM latest",
+            "INSERT OR REPLACE INTO history (trade_date, " + cols + ")"
+            " SELECT ?, " + cols + " FROM latest",
             (trade_date,),
         )
     return cur.rowcount

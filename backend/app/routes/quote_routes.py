@@ -164,12 +164,9 @@ def quote_list(
     }
 
 
-# 涨跌停幅度（与前端的 limitPctOf/limitTol 对齐）：主板 10 / 创业科创 20 / 北交 30，容差 2%
-_LIMIT_CASE = ("CASE WHEN code GLOB '68*' OR code GLOB '30*' THEN 19.6"
-               " WHEN code GLOB '4*' OR code GLOB '8*' OR code GLOB '9*'"
-               " THEN 29.4 ELSE 9.8 END")
-
-
+# 涨跌停标记由 fetcher 按 最新价 vs 东财涨/跌停价(f350/f351) 判定写入。
+# 统计口径与同花顺一致:涨跌停家数剔除 ST 股(北交所计入);
+# 上涨/下跌/大跌不过滤 ST。
 @router.get("/api/quote/meta")
 def quote_meta(markets: str | None = Query(default=None),
                user=Depends(current_user)):
@@ -184,10 +181,13 @@ def quote_meta(markets: str | None = Query(default=None),
     stats = conn.execute(
         "SELECT COUNT(*) AS valid,"
         " SUM(CASE WHEN f3 > 0 THEN 1 ELSE 0 END) AS up,"
+        " SUM(CASE WHEN f3 < 0 THEN 1 ELSE 0 END) AS down,"
         " SUM(CASE WHEN f3 <= -5 THEN 1 ELSE 0 END) AS big_down,"
-        " SUM(CASE WHEN f3 >= " + _LIMIT_CASE + " THEN 1 ELSE 0 END) AS limit_up,"
-        " SUM(CASE WHEN f3 <= -(" + _LIMIT_CASE + ") THEN 1 ELSE 0 END)"
-        " AS limit_down FROM latest" + where + " AND f3 IS NOT NULL", mp,
+        " SUM(CASE WHEN limit_up = 1 AND name NOT LIKE '%ST%'"
+        "     THEN 1 ELSE 0 END) AS limit_up,"
+        " SUM(CASE WHEN limit_down = 1 AND name NOT LIKE '%ST%'"
+        "     THEN 1 ELSE 0 END) AS limit_down"
+        " FROM latest" + where + " AND f3 IS NOT NULL", mp,
     ).fetchone()
     meta = _snapshot_meta()
     return {
@@ -196,7 +196,7 @@ def quote_meta(markets: str | None = Query(default=None),
         "snapshot_total": meta["total"],
         "industries": [dict(r) for r in inds],
         "stats": {k: (stats[k] or 0) for k in
-                  ("valid", "up", "big_down", "limit_up", "limit_down")},
+                  ("valid", "up", "down", "big_down", "limit_up", "limit_down")},
     }
 
 

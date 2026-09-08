@@ -11,7 +11,8 @@ import requests
 log = logging.getLogger("fetcher")
 
 HOSTS = ["https://push2.eastmoney.com", "https://push2delay.eastmoney.com"]
-FIELDS = "f12,f14,f2,f3,f6,f7,f8,f9,f10,f20,f21,f23,f24,f25,f100"
+# f350/f351 = 东财计算的涨停价/跌停价（已处理除权除息基准价，比自算更可靠）
+FIELDS = "f12,f14,f2,f3,f6,f7,f8,f9,f10,f18,f20,f21,f23,f24,f25,f350,f351,f100"
 PAGE_SIZE = 100          # 接口上限（pz>100 会被静默截断）
 RETRY = 2
 HEADERS = {
@@ -27,8 +28,24 @@ _session.headers.update(HEADERS)
 # 全部 5 个市场（前端市场复选框的并集）
 FS_ALL = "m:1+t:2,m:0+t:6,m:0+t:80,m:1+t:23,m:0+t:81+s:2048"
 
-_NUM_FIELDS = ["f2", "f3", "f6", "f7", "f8", "f9", "f10",
-               "f20", "f21", "f23", "f24", "f25"]
+_NUM_FIELDS = ["f2", "f3", "f6", "f7", "f8", "f9", "f10", "f18",
+               "f20", "f21", "f23", "f24", "f25", "f350", "f351"]
+
+
+def limit_flags(price, limit_up_px, limit_down_px):
+    """涨跌停判定:最新价是否达到东财给出的涨停价/跌停价(f350/f351)。
+
+    返回 (limit_up, limit_down),停牌/无涨跌停价(上市初期无限制的新股等)
+    返回 (None, None)。容差 0.005 防御浮点与最小变动价位(0.01)误差。
+    """
+    if price is None:
+        return None, None
+    lu = ld = 0
+    if limit_up_px is not None and abs(price - limit_up_px) < 0.005:
+        lu = 1
+    if limit_down_px is not None and abs(price - limit_down_px) < 0.005:
+        ld = 1
+    return lu, ld
 
 
 def market_of(code: str) -> str:
@@ -44,15 +61,18 @@ def market_of(code: str) -> str:
 
 
 def _normalize(item: dict) -> dict:
+    code = str(item.get("f12") or "")
     row = {
         "code": item.get("f12"),
         "name": item.get("f14"),
         "industry": item.get("f100") or None,
-        "market": market_of(str(item.get("f12") or "")),
+        "market": market_of(code),
     }
     for k in _NUM_FIELDS:
         v = item.get(k)
         row[k] = float(v) if isinstance(v, (int, float)) else None
+    row["limit_up"], row["limit_down"] = limit_flags(
+        row["f2"], row["f350"], row["f351"])
     return row
 
 
