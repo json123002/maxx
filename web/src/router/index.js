@@ -29,10 +29,13 @@ router.beforeEach(async (to) => {
   }
   if (!getToken()) return { path: "/login" };
   if (!authState.user) {
-    const u = await fetchMe();
-    if (!u) return { path: "/login" };
+    await fetchMe();
+    // 仅当 token 已被清除(401,apiFetch 内 removeToken)才回登录页;
+    // 后端不可达等网络失败时放行——页面会显示加载失败,
+    // 否则 /login 守卫看到 token 又弹回 /,两个守卫互相重定向形成请求死循环
+    if (!authState.user && !getToken()) return { path: "/login" };
   }
-  if (to.meta.admin && authState.user.role !== "admin") return { path: "/" };
+  if (to.meta.admin && authState.user?.role !== "admin") return { path: "/" };
   return true;
 });
 

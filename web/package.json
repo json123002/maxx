@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "dev:local": "set TS_API_TARGET=http://127.0.0.1:8000&&vite"
+    "dev:remote": "set TS_API_TARGET=http://47.94.235.93&&vite"
   },
   "dependencies": {
     "@ant-design/icons-vue": "^7.0.1",
