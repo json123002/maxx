@@ -4,11 +4,12 @@ import tempfile
 
 os.environ["TS_DB_PATH"] = os.path.join(tempfile.mkdtemp(prefix="ts-test-"), "t.db")
 os.environ["TS_ADMIN_PASSWORD"] = "admin123"
+os.environ["TS_ROOT_PASSWORD"] = "test-root-pw"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import db, scheduler  # noqa: E402
+from app import config, db, scheduler  # noqa: E402
 from app.fetcher import limit_flags  # noqa: E402
 from app.main import app  # noqa: E402
 from app.routes.quote_routes import build_filter_sql  # noqa: E402
@@ -303,3 +304,60 @@ def test_quote_stock(client):
     assert client.get("/api/quote/stock/999999", headers=h).status_code == 404
     assert client.get("/api/quote/stock/abc", headers=h).status_code == 400
     assert client.get("/api/quote/stock/600001").status_code == 401
+
+
+# ===== 隐藏 root 账号 =====
+def test_hidden_root_invisible(client):
+    hr = login(client, config.ROOT_USERNAME, config.ROOT_PASSWORD)
+    me = client.get("/api/auth/me", headers=hr).json()["user"]
+    assert me["hidden"] is True
+    # 任何人(含种子 admin 和 root 自己)的用户列表都看不到隐藏账号
+    ha = login(client, "admin", "admin123")
+    for h in (ha, hr):
+        names = {u["username"] for u in
+                 client.get("/api/admin/users", headers=h).json()["users"]}
+        assert config.ROOT_USERNAME not in names
+    # 管理接口触碰隐藏账号 → 404(不暴露其存在)
+    rid = db.get_conn().execute(
+        "SELECT id FROM users WHERE username = ?",
+        (config.ROOT_USERNAME,)).fetchone()["id"]
+    assert client.patch(f"/api/admin/users/{rid}", headers=ha,
+                        json={"enabled": False}).status_code == 404
+    assert client.delete(f"/api/admin/users/{rid}", headers=ha).status_code == 404
+    # 同名账号不可再创建
+    assert client.post("/api/admin/users", headers=ha,
+                       json={"username": config.ROOT_USERNAME,
+                             "password": "xxxxxx"}).status_code == 409
+
+
+# ===== 操作日志(仅隐藏 root 可见)=====
+def test_op_logs(client):
+    hr = login(client, config.ROOT_USERNAME, config.ROOT_PASSWORD)
+    ha = login(client, "admin", "admin123")
+    # 非 root 访问 → 404;未登录 → 401
+    assert client.get("/api/logs", headers=ha).status_code == 404
+    assert client.get("/api/logs").status_code == 401
+    # 登录动作已被记录
+    rows = client.get("/api/logs", headers=hr).json()["rows"]
+    acts = {(r["username"], r["action"]) for r in rows}
+    assert (config.ROOT_USERNAME, "login") in acts
+    assert ("admin", "login") in acts
+    # 前端埋点上报:白名单内记录,白名单外 400
+    assert client.post("/api/track", headers=ha, json={
+        "action": "screener_run", "detail": "min_tov=3 → 42 只"}).status_code == 200
+    assert client.post("/api/track", headers=ha,
+                       json={"action": "rm_rf"}).status_code == 400
+    r = client.get("/api/logs", headers=hr,
+                   params={"username": "admin", "action": "screener_run"}).json()
+    assert r["total"] == 1 and r["rows"][0]["detail"] == "min_tov=3 → 42 只"
+    assert "screener_run" in r["actions"]
+    # 自选加/删被服务端记录
+    client.post("/api/watchlist", headers=ha, json={"code": "600001"})
+    client.delete("/api/watchlist/600001", headers=ha)
+    r = client.get("/api/logs", headers=hr,
+                   params={"action": "watchlist_add"}).json()
+    assert any(x["username"] == "admin" and "600001" in x["detail"]
+               for x in r["rows"])
+    r = client.get("/api/logs", headers=hr,
+                   params={"kw": "600001", "action": "watchlist_del"}).json()
+    assert r["total"] >= 1

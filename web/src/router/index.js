@@ -13,6 +13,8 @@ const routes = [
       { path: "admin", name: "admin", component: () => import("../views/AdminView.vue"), meta: { title: "用户管理", admin: true } },
       { path: "watchlist", name: "watchlist", component: () => import("../views/WatchlistView.vue"), meta: { title: "我的自选" } },
       { path: "stock/:code", name: "stock", component: () => import("../views/StockView.vue"), meta: { title: "个股详情" } },
+      // 操作日志:仅隐藏 root 可见(菜单隐藏 + 路由守卫 + 后端 404 三道)
+      { path: "logs", name: "logs", component: () => import("../views/LogView.vue"), meta: { title: "操作日志", root: true } },
     ],
   },
   { path: "/:pathMatch(.*)*", redirect: "/" },
@@ -38,6 +40,7 @@ router.beforeEach(async (to) => {
     if (!authState.user && !getToken()) return { path: "/login" };
   }
   if (to.meta.admin && authState.user?.role !== "admin") return { path: "/" };
+  if (to.meta.root && !authState.user?.hidden) return { path: "/" };
   return true;
 });
 

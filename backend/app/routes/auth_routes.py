@@ -1,11 +1,12 @@
 """登录 / 登出 / 当前用户 / 改密。注册不开放，用户由管理员创建。"""
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import config
 from ..db import get_conn
+from ..oplog import log_op
 from ..security import (create_session, current_user, drop_session,
                         hash_password, verify_password)
 
@@ -13,9 +14,11 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 def _public_user(u) -> dict:
-    """对外用户对象：root = 种子管理员账号(用户名 = TS_ADMIN_USERNAME)。"""
+    """对外用户对象：root = 种子管理员账号(用户名 = TS_ADMIN_USERNAME)；
+    hidden = 隐藏 root 账号(前端据此显示日志菜单)。"""
     return {"id": u["id"], "username": u["username"], "role": u["role"],
-            "root": u["username"] == config.ADMIN_USERNAME}
+            "root": u["username"] == config.ADMIN_USERNAME,
+            "hidden": bool(u["hidden"])}
 
 
 class LoginIn(BaseModel):
@@ -29,9 +32,9 @@ class ChangePwdIn(BaseModel):
 
 
 @router.post("/login")
-def login(body: LoginIn):
+def login(body: LoginIn, request: Request):
     row = get_conn().execute(
-        "SELECT id, username, password_hash, role, enabled FROM users"
+        "SELECT id, username, password_hash, role, enabled, hidden FROM users"
         " WHERE username = ?",
         (body.username.strip(),),
     ).fetchone()
@@ -40,12 +43,15 @@ def login(body: LoginIn):
     if not row["enabled"]:
         raise HTTPException(403, "账号已被禁用，请联系管理员")
     token = create_session(row["id"])
+    log_op(dict(row), "login",
+           ip=request.client.host if request.client else "")
     return {"token": token, "user": _public_user(row)}
 
 
 @router.post("/logout")
 def logout(user=Depends(current_user)):
     drop_session(user["token"])
+    log_op(user, "logout")
     return {"ok": True}
 
 

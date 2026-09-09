@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..db import get_conn
+from ..oplog import log_op
 from ..security import current_user
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
@@ -67,6 +68,7 @@ def watch_add(body: AddIn, user=Depends(current_user)):
             (user["id"], code, row["name"],
              datetime.now().isoformat(timespec="seconds")),
         )
+    log_op(user, "watchlist_add", "%s %s" % (code, row["name"]))
     return {"ok": True, "code": code, "name": row["name"]}
 
 
@@ -78,6 +80,7 @@ def watch_remove(code: str, user=Depends(current_user)):
     with get_conn() as conn:
         conn.execute("DELETE FROM watchlist WHERE user_id = ? AND code = ?",
                      (user["id"], code))
+    log_op(user, "watchlist_del", code)
     return {"ok": True}
 
 

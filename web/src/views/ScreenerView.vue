@@ -7,6 +7,7 @@ import FilterPanel from "../screener/FilterPanel.vue";
 import ResultsPanel from "../screener/ResultsPanel.vue";
 import AnalysisModal from "../analysis/AnalysisModal.vue";
 import { useScreener } from "../screener/useScreener";
+import { track } from "../api/client";
 
 const route = useRoute();
 const s = useScreener();
@@ -16,6 +17,7 @@ const { tab, allRows, hasRun, hasMore, restoreFilters, applyUrlQuery, run } = s;
 // 分析弹窗(同事实现,契约:ref.open(code),K线/资金流内部自取)
 const anaRef = ref(null);
 function openAnalysis(code) {
+  track("analysis_view", code);
   anaRef.value && anaRef.value.open(code);
 }
 

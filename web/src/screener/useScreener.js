@@ -3,7 +3,7 @@
    前端保留排序、渲染数据、CSV 导出;行业统计与情绪统计来自 /api/quote/meta。 */
 import { computed, reactive, ref } from "vue";
 import { message } from "ant-design-vue";
-import { apiFetch } from "../api/client";
+import { apiFetch, track } from "../api/client";
 import { cmpRows, fmtN, rangeVal } from "../utils/format";
 import { fetchIndexKline } from "../analysis/data";
 import {
@@ -225,6 +225,8 @@ export function useScreener() {
       lastMeta.value = meta;
       hasRun.value = true;
       shown.value = LOAD_STEP;
+      // 埋点:条件 + 命中数(操作日志页可查,仅 root 可见)
+      track("screener_run", buildQuery() + " → " + lastTotal.value + " 只");
 
       // 数据源徽标:实时/延迟 + 快照时间;抓取失败中的陈旧数据明确标注
       const secs = ((performance.now() - t0) / 1000).toFixed(1);

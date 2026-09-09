@@ -20,6 +20,10 @@ PASSWORD = os.environ.get("TS_PASSWORD", "")
 if not PASSWORD:
     raise SystemExit("缺少 TS_PASSWORD 环境变量(服务器 SSH 密码),拒绝部署")
 
+# 隐藏 root 账号密码(可选):设置后部署时写入服务器 /etc/turnover-screener.env
+# (systemd EnvironmentFile 注入,文件权限 600,不进 git);不设置则不动服务器现有值
+ROOT_PASSWORD = os.environ.get("TS_ROOT_PASSWORD", "")
+
 ROOT = os.path.dirname(os.path.abspath(__file__))          # deploy/
 LOCAL = os.path.dirname(ROOT)                              # maxx/
 REMOTE = "/opt/turnover-screener"
@@ -100,6 +104,13 @@ def main():
              "/etc/systemd/system/turnover-api.service")
     sftp.put(os.path.join(ROOT, "nginx.conf"),
              "/etc/nginx/conf.d/turnover.conf")
+
+    if ROOT_PASSWORD:
+        # 敏感配置走服务器本地环境文件(systemd EnvironmentFile),不进代码库
+        import shlex
+        run(ssh, "printf 'TS_ROOT_PASSWORD=%s\\n' > /etc/turnover-screener.env"
+                 " && chmod 600 /etc/turnover-screener.env"
+                 % shlex.quote(ROOT_PASSWORD))
 
     print("== 3. venv + deps (aliyun mirror) ==")
     run(ssh, "cd %s/backend && python3.11 -m venv venv && "

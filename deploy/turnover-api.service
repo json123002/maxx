@@ -6,6 +6,9 @@ After=network.target
 Type=simple
 WorkingDirectory=/opt/turnover-screener/backend
 Environment=TZ=Asia/Shanghai
+# 敏感配置(隐藏 root 密码 TS_ROOT_PASSWORD 等)由该文件注入,文件不进 git,
+# 由 deploy.py 部署时按本机环境变量写入(权限 600);不存在时忽略(-前缀)
+EnvironmentFile=-/etc/turnover-screener.env
 # 初始管理员密码（仅首次建库生效），上线后请立即在页面「修改密码」改掉
 Environment=TS_ADMIN_PASSWORD=admin123
 # 抓数间隔（分钟）

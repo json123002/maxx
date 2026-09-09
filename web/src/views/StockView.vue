@@ -6,7 +6,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { message } from "ant-design-vue";
-import { api } from "../api/client";
+import { api, track } from "../api/client";
 import { cls, fmtN, fmtYiT } from "../utils/format";
 import { fetchKline, fetchMoneyFlow } from "../analysis/data";
 import { inWatch, loadWatchCodes, toggleWatch } from "../stores/watchlist";
@@ -29,6 +29,7 @@ onMounted(async () => {
   try {
     const d = await api("/api/quote/stock/" + code);
     quote.value = d.row;
+    track("stock_view", code + " " + (d.row.f14 || ""));
   } catch (err) {
     if (err.message === "unauthorized") return;
     notFound.value = true;

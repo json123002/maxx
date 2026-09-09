@@ -80,6 +80,7 @@ def init_db() -> None:
             password_hash TEXT NOT NULL,
             role          TEXT NOT NULL DEFAULT 'user',
             enabled       INTEGER NOT NULL DEFAULT 1,
+            hidden        INTEGER NOT NULL DEFAULT 0,
             created_at    TEXT NOT NULL
         );
 
@@ -98,9 +99,21 @@ def init_db() -> None:
             created_at TEXT NOT NULL,
             PRIMARY KEY (user_id, code)
         );
+
+        CREATE TABLE IF NOT EXISTS op_logs (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts         TEXT NOT NULL,
+            user_id    INTEGER,
+            username   TEXT,
+            action     TEXT NOT NULL,
+            detail     TEXT,
+            ip         TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_op_logs_ts ON op_logs(ts);
         """
     )
     _migrate_quote_cols(conn)
+    _migrate_users(conn)
     conn.commit()
 
 
@@ -113,6 +126,48 @@ def _migrate_quote_cols(conn) -> None:
         for col, decl in added.items():
             if col not in have:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+
+def _migrate_users(conn) -> None:
+    """老库补列:hidden 标记(隐藏 root 不出现在用户管理列表)。"""
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
+    if "hidden" not in have:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+
+
+def seed_root(hash_password) -> None:
+    """确保隐藏 root 账号存在(hidden=1,用户管理列表与管理接口均不可见/不可触碰)。
+
+    密码只从环境变量 TS_ROOT_PASSWORD 取(不落代码):未设置时跳过创建并告警;
+    账号已存在则只校正 hidden 标记,不动密码。
+    """
+    import logging
+    from datetime import datetime
+
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id, hidden FROM users WHERE username = ?",
+        (config.ROOT_USERNAME,)).fetchone()
+    if row:
+        if not row["hidden"]:
+            with conn:
+                conn.execute("UPDATE users SET hidden = 1 WHERE id = ?",
+                             (row["id"],))
+        return
+    if not config.ROOT_PASSWORD:
+        logging.getLogger("db").warning(
+            "TS_ROOT_PASSWORD 未设置,跳过创建隐藏 root 账号(%s)",
+            config.ROOT_USERNAME)
+        return
+    with conn:
+        conn.execute(
+            "INSERT INTO users"
+            " (username, password_hash, role, enabled, hidden, created_at)"
+            " VALUES (?, ?, 'admin', 1, 1, ?)",
+            (config.ROOT_USERNAME, hash_password(config.ROOT_PASSWORD),
+             datetime.now().isoformat(timespec="seconds")),
+        )
 
 
 def seed_admin(hash_password) -> None:

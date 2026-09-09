@@ -78,6 +78,7 @@ import { useRoute, useRouter } from "vue-router";
 import {
   DownOutlined, KeyOutlined, LogoutOutlined,
   DashboardOutlined, FundViewOutlined, TeamOutlined, StarOutlined,
+  FileTextOutlined,
 } from "@ant-design/icons-vue";
 import { authState, logout } from "../stores/auth";
 import { themeMode, toggleTheme } from "../utils/theme";
@@ -88,15 +89,18 @@ const router = useRouter();
 const collapsed = ref(false);
 const pwdOpen = ref(false);
 
-// 菜单配置:新增功能页在这里加一项即可(adminOnly 仅管理员可见)
+// 菜单配置:新增功能页在这里加一项即可(adminOnly 仅管理员可见,rootOnly 仅隐藏 root 可见)
 const MENUS = [
   { path: "/home", title: "工作台", icon: DashboardOutlined },
   { path: "/screener", title: "换手率筛选", icon: FundViewOutlined },
   { path: "/admin", title: "用户管理", icon: TeamOutlined, adminOnly: true },
   { path: "/watchlist", title: "我的自选", icon: StarOutlined },
+  { path: "/logs", title: "日志", icon: FileTextOutlined, rootOnly: true },
 ];
 const menus = computed(() =>
-  MENUS.filter(m => !m.adminOnly || ["super", "admin"].includes(authState.user?.role))
+  MENUS.filter(m =>
+    (!m.adminOnly || ["super", "admin"].includes(authState.user?.role)) &&
+    (!m.rootOnly || authState.user?.hidden))
 );
 
 function onMenu({ key }) { router.push(key); }

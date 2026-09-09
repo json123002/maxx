@@ -3,6 +3,8 @@
 权限模型（不设独立 super 角色）：
 - 种子账号（用户名 = TS_ADMIN_USERNAME，默认 admin）即 root，拥有全部权限；
   root 账号不可被任何人通过管理接口修改/删除（自己改密走 /api/auth/change-password）。
+- 隐藏 root 账号（hidden=1，用户名 = TS_ROOT_USERNAME）：对所有人（含种子 root）
+  不出现在用户列表，管理接口触碰一律 404（不暴露其存在）。
 - 其他 role=admin 的管理员：可创建和管理普通用户；不能创建管理员、
   不能动 root、不能动其他管理员。
 - role=user 的普通用户：无管理权限。
@@ -15,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from .. import config
 from ..db import get_conn
+from ..oplog import log_op
 from ..security import hash_password, require_admin
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -51,8 +54,10 @@ def _validate_role(role: str) -> str:
 
 def _get_user(user_id: int):
     row = get_conn().execute(
-        "SELECT id, username, role FROM users WHERE id = ?", (user_id,)).fetchone()
-    if not row:
+        "SELECT id, username, role, hidden FROM users WHERE id = ?",
+        (user_id,)).fetchone()
+    if not row or row["hidden"]:
+        # 隐藏 root:管理接口视角下等同于不存在
         raise HTTPException(404, "用户不存在")
     return dict(row)
 
@@ -76,7 +81,8 @@ def _check_admin_scope(caller, target, new_role: str | None = None) -> None:
 @router.get("/users")
 def list_users(admin=Depends(require_admin)):
     rows = get_conn().execute(
-        "SELECT id, username, role, enabled, created_at FROM users ORDER BY id"
+        "SELECT id, username, role, enabled, created_at FROM users"
+        " WHERE hidden = 0 ORDER BY id"
     ).fetchall()
     users = [_public(dict(r)) for r in rows]
     # 非 root 管理员看不到 root 账号
@@ -91,7 +97,7 @@ def create_user(body: CreateUserIn, admin=Depends(require_admin)):
     if not _USERNAME_RE.match(username):
         raise HTTPException(400, "用户名仅限字母数字及 _ @ . -，长度 2-32")
     _validate_role(body.role)
-    if username == config.ADMIN_USERNAME:
+    if username in (config.ADMIN_USERNAME, config.ROOT_USERNAME):
         raise HTTPException(409, "用户名已存在")
     if body.role == "admin" and not _is_root(admin):
         raise HTTPException(403, "仅超级管理员可创建管理员")
@@ -106,6 +112,7 @@ def create_user(body: CreateUserIn, admin=Depends(require_admin)):
             )
     except Exception:
         raise HTTPException(409, "用户名已存在")
+    log_op(admin, "admin_create_user", "%s(%s)" % (username, body.role))
     return {"id": cur.lastrowid, "username": username, "role": body.role}
 
 
@@ -137,6 +144,9 @@ def update_user(user_id: int, body: UpdateUserIn, admin=Depends(require_admin)):
         if body.enabled is False or body.password is not None:
             # 禁用或重置密码后立即吊销该用户所有会话
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+    changes = ",".join(f.replace("password_hash", "password")
+                       for f in sets)
+    log_op(admin, "admin_update_user", "%s: %s" % (target["username"], changes))
     return {"ok": True}
 
 
@@ -150,4 +160,5 @@ def delete_user(user_id: int, admin=Depends(require_admin)):
     conn = get_conn()
     with conn:
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    log_op(admin, "admin_delete_user", target["username"])
     return {"ok": True}

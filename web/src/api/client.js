@@ -24,3 +24,11 @@ export async function api(url, opts) {
   if (!r.ok) throw new Error(d.detail || "HTTP " + r.status);
   return d;
 }
+
+// 行为埋点上报:fire-and-forget,失败静默(动作白名单见后端 log_routes)
+export function track(action, detail = "") {
+  apiFetch("/api/track", {
+    method: "POST",
+    body: { action, detail: String(detail).slice(0, 300) },
+  }).catch(() => {});
+}

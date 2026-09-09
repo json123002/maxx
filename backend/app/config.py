@@ -8,6 +8,13 @@ DB_PATH = os.environ.get("TS_DB_PATH", os.path.join(BASE_DIR, "data", "screener.
 ADMIN_USERNAME = os.environ.get("TS_ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("TS_ADMIN_PASSWORD", "admin123")
 
+# 隐藏 root 账号：拥有全部权限，但对所有人（含 admin）不出现在用户管理列表，
+# 独享 /api/logs 操作日志。密码【不落在代码里】：仅当环境变量 TS_ROOT_PASSWORD
+# 存在时才创建该账号（生产由 /etc/turnover-screener.env 注入，见 deploy.py）。
+# 未设置时跳过创建；账号已存在则不受影响（之后可在页面「修改密码」改密）。
+ROOT_USERNAME = os.environ.get("TS_ROOT_USERNAME", "root")
+ROOT_PASSWORD = os.environ.get("TS_ROOT_PASSWORD", "")
+
 # 会话有效期（小时）
 SESSION_TTL_HOURS = int(os.environ.get("TS_SESSION_TTL_HOURS", "168"))  # 7 天
 
