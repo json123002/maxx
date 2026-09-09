@@ -78,9 +78,13 @@ def watch_remove(code: str, user=Depends(current_user)):
     if not CODE_RE.match(code):
         raise HTTPException(400, "股票代码须为 6 位数字")
     with get_conn() as conn:
+        row = conn.execute(
+            "SELECT name FROM watchlist WHERE user_id = ? AND code = ?",
+            (user["id"], code)).fetchone()
         conn.execute("DELETE FROM watchlist WHERE user_id = ? AND code = ?",
                      (user["id"], code))
-    log_op(user, "watchlist_del", code)
+    log_op(user, "watchlist_del",
+           code + (" " + row["name"] if row and row["name"] else ""))
     return {"ok": True}
 
 

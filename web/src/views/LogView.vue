@@ -11,7 +11,7 @@ import {
 import { api } from "../api/client";
 
 const ACTION_LABELS = {
-  login: "登录", logout: "登出",
+  login: "登录", logout: "登出", login_fail: "登录失败",
   screener_run: "条件筛选", stock_view: "查看个股", analysis_view: "战法分析",
   watchlist_add: "加自选", watchlist_del: "删自选",
   admin_create_user: "新建用户", admin_update_user: "修改用户",

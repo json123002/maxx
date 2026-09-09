@@ -33,18 +33,22 @@ class ChangePwdIn(BaseModel):
 
 @router.post("/login")
 def login(body: LoginIn, request: Request):
+    ip = request.client.host if request.client else ""
     row = get_conn().execute(
         "SELECT id, username, password_hash, role, enabled, hidden FROM users"
         " WHERE username = ?",
         (body.username.strip(),),
     ).fetchone()
     if not row or not verify_password(body.password, row["password_hash"]):
+        # 登录失败也记录(暴力破解/输错密码是重要安全信号)
+        log_op({"id": None, "username": body.username.strip()},
+               "login_fail", "用户名或密码错误", ip)
         raise HTTPException(401, "用户名或密码错误")
     if not row["enabled"]:
+        log_op(dict(row), "login_fail", "账号已禁用", ip)
         raise HTTPException(403, "账号已被禁用，请联系管理员")
     token = create_session(row["id"])
-    log_op(dict(row), "login",
-           ip=request.client.host if request.client else "")
+    log_op(dict(row), "login", "", ip)
     return {"token": token, "user": _public_user(row)}
 
 

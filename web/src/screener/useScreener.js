@@ -100,6 +100,20 @@ export function useScreener() {
     metrics.value = normalizeMetricsState(f.metrics);
   }
 
+  // ===== 结果缓存(进入页面立即渲染上次结果,避免小带宽下白屏)=====
+  function restoreResults() {
+    try {
+      const d = JSON.parse(sessionStorage.getItem("tsm-results") || "null");
+      if (!d || !Array.isArray(d.rows) || !d.rows.length) return;
+      allRows.value = d.rows;
+      lastTotal.value = typeof d.total === "number" ? d.total : d.rows.length;
+      hasRun.value = true;
+      srcBadge.text = "上次查询结果(点查询刷新)";
+      srcBadge.rt = false;
+    } catch (e) {}
+  }
+  restoreResults();
+
   // ===== URL 参数覆盖(对齐旧初始化:?tmin=8&cmin=-8&cmax=-5&industry=半导体&auto=1)=====
   function applyUrlQuery(q) {
     const get = (k) => { const v = q[k]; return Array.isArray(v) ? v[0] : v; };
@@ -225,8 +239,17 @@ export function useScreener() {
       lastMeta.value = meta;
       hasRun.value = true;
       shown.value = LOAD_STEP;
-      // 埋点:条件 + 命中数(操作日志页可查,仅 root 可见)
-      track("screener_run", buildQuery() + " → " + lastTotal.value + " 只");
+      // 埋点:中文条件摘要 + 命中数(操作日志页可查,仅 root 可见)
+      const parts = [summary.value];
+      if (kw.value.trim()) parts.push("关键词:" + kw.value.trim());
+      track("screener_run", parts.filter(Boolean).join(" · ") + " → 命中 " + lastTotal.value + " 只");
+      // 缓存本次结果,回到本页时先渲染(小带宽下避免白屏),用户点查询再刷新
+      try {
+        sessionStorage.setItem("tsm-results", JSON.stringify({
+          rows: allRows.value.slice(0, RENDER_CAP),
+          total: lastTotal.value, at: Date.now(),
+        }));
+      } catch (e) {}
 
       // 数据源徽标:实时/延迟 + 快照时间;抓取失败中的陈旧数据明确标注
       const secs = ((performance.now() - t0) / 1000).toFixed(1);

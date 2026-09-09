@@ -351,7 +351,7 @@ def test_op_logs(client):
                    params={"username": "admin", "action": "screener_run"}).json()
     assert r["total"] == 1 and r["rows"][0]["detail"] == "min_tov=3 → 42 只"
     assert "screener_run" in r["actions"]
-    # 自选加/删被服务端记录
+    # 自选加/删被服务端记录(删除详情带股票名称)
     client.post("/api/watchlist", headers=ha, json={"code": "600001"})
     client.delete("/api/watchlist/600001", headers=ha)
     r = client.get("/api/logs", headers=hr,
@@ -360,4 +360,9 @@ def test_op_logs(client):
                for x in r["rows"])
     r = client.get("/api/logs", headers=hr,
                    params={"kw": "600001", "action": "watchlist_del"}).json()
-    assert r["total"] >= 1
+    assert any("测试钢铁" in x["detail"] for x in r["rows"])
+    # 登录失败也被记录(安全信号)
+    client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
+    r = client.get("/api/logs", headers=hr,
+                   params={"action": "login_fail"}).json()
+    assert any(x["username"] == "admin" for x in r["rows"])

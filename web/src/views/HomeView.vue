@@ -193,8 +193,27 @@ async function load() {
     Object.assign(stats, meta.stats, { down: meta.stats.down ?? (meta.stats.valid - meta.stats.up) });
     computeSenti(meta.stats);
     hot.value = pickTopComposite(list.rows || [], 6);
+    // 缓存本次结果,下次进页面先渲染缓存(1M 小水管下避免白屏等待)
+    try {
+      sessionStorage.setItem("home-cache", JSON.stringify({
+        fetchedAt: fetchedAt.value, source: source.value,
+        stats: meta.stats, hot: hot.value,
+      }));
+    } catch (e) {}
   } catch { /* 未登录跳转由 api client 处理;其余失败保持占位 */ }
 }
+
+// 缓存优先:上次数据立即上屏,随后 load() 静默刷新
+try {
+  const c = JSON.parse(sessionStorage.getItem("home-cache") || "null");
+  if (c && c.stats) {
+    fetchedAt.value = c.fetchedAt || "";
+    source.value = c.source || "";
+    Object.assign(stats, c.stats);
+    computeSenti(c.stats);
+    hot.value = c.hot || [];
+  }
+} catch (e) {}
 
 // 交易时段每分钟静默刷新一次
 let timer = null;
