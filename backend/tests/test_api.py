@@ -234,3 +234,71 @@ def test_change_password(client):
     # 改回，避免影响其它用例
     client.post("/api/auth/change-password", headers=h,
                 json={"old_password": "admin456", "new_password": "admin123"})
+
+
+# ===== 自选 =====
+def test_watchlist_requires_auth(client):
+    assert client.get("/api/watchlist").status_code == 401
+    assert client.post("/api/watchlist", json={"code": "600001"}).status_code == 401
+
+
+def test_watchlist_lifecycle(client):
+    h = login(client, "admin", "admin123")
+    # 空列表
+    assert client.get("/api/watchlist", headers=h).json()["rows"] == []
+    # 添加:停牌股(不在快照默认筛选里,但快照中存在)也能加
+    r = client.post("/api/watchlist", headers=h, json={"code": "600001"})
+    assert r.status_code == 200 and r.json()["name"] == "测试钢铁"
+    # 重复添加幂等
+    assert client.post("/api/watchlist", headers=h,
+                       json={"code": "600001"}).status_code == 200
+    rows = client.get("/api/watchlist", headers=h).json()["rows"]
+    assert len(rows) == 1
+    assert rows[0]["f12"] == "600001" and rows[0]["f2"] == 10.0  # 关联到快照行情
+    # 不存在的代码 → 404;非法代码 → 400/422
+    assert client.post("/api/watchlist", headers=h,
+                       json={"code": "999999"}).status_code == 404
+    assert client.post("/api/watchlist", headers=h,
+                       json={"code": "abc123"}).status_code in (400, 422)
+    # 搜索:按名称/代码,附带 added 标记
+    r = client.get("/api/watchlist/search?kw=测试", headers=h).json()["rows"]
+    assert any(x["f12"] == "600001" and x["added"] for x in r)
+    assert any(x["f12"] == "300001" and not x["added"] for x in r)
+    assert client.get("/api/watchlist/search?kw=", headers=h).json()["rows"] == []
+    # 删除(幂等)
+    assert client.delete("/api/watchlist/600001", headers=h).status_code == 200
+    assert client.delete("/api/watchlist/600001", headers=h).status_code == 200
+    assert client.get("/api/watchlist", headers=h).json()["rows"] == []
+
+
+def test_watchlist_per_user(client):
+    hs = login(client, "admin", "admin123")
+    r = client.post("/api/admin/users", headers=hs,
+                    json={"username": "wl_user", "password": "user123", "role": "user"})
+    assert r.status_code == 201
+    hu = login(client, "wl_user", "user123")
+    client.post("/api/watchlist", headers=hs, json={"code": "600001"})
+    client.post("/api/watchlist", headers=hu, json={"code": "300001"})
+    a = client.get("/api/watchlist", headers=hs).json()["rows"]
+    u = client.get("/api/watchlist", headers=hu).json()["rows"]
+    assert [x["f12"] for x in a] == ["600001"]
+    assert [x["f12"] for x in u] == ["300001"]
+    # 删除用户级联清掉自选
+    uid = client.get("/api/admin/users", headers=hs).json()["users"]
+    uid = [x["id"] for x in uid if x["username"] == "wl_user"][0]
+    client.delete(f"/api/admin/users/{uid}", headers=hs)
+    conn = db.get_conn()
+    n = conn.execute("SELECT COUNT(*) AS c FROM watchlist WHERE user_id = ?",
+                     (uid,)).fetchone()["c"]
+    assert n == 0
+
+
+def test_quote_stock(client):
+    h = login(client, "admin", "admin123")
+    r = client.get("/api/quote/stock/600001", headers=h)
+    assert r.status_code == 200
+    row = r.json()["row"]
+    assert row["f12"] == "600001" and row["f14"] == "测试钢铁" and row["f2"] == 10.0
+    assert client.get("/api/quote/stock/999999", headers=h).status_code == 404
+    assert client.get("/api/quote/stock/abc", headers=h).status_code == 400
+    assert client.get("/api/quote/stock/600001").status_code == 401

@@ -331,6 +331,16 @@ button.ghost:hover { color: var(--txt); border-color: var(--line-strong); }
 }
 .anaBtn:hover { border-color: var(--accent); background: var(--accent-dim); }
 
+/* 自选星标:行内小按钮,已加自选为实心金 */
+.starBtn {
+  background: none; border: none; cursor: pointer; padding: 2px;
+  color: var(--line-strong); line-height: 0; vertical-align: middle;
+  transition: color .15s, transform .1s;
+}
+.starBtn:hover { color: var(--dim); transform: scale(1.15); }
+.starBtn.on { color: #f5a623; }
+.starBtn.on:hover { color: #f5a623; }
+
 .anaModal {
   display: flex; position: fixed; inset: 0; z-index: 100;
   background: rgba(0, 0, 0, .55);

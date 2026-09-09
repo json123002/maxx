@@ -90,6 +90,14 @@ def init_db() -> None:
             expires_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+        CREATE TABLE IF NOT EXISTS watchlist (
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            code       TEXT NOT NULL,
+            name       TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, code)
+        );
         """
     )
     _migrate_quote_cols(conn)

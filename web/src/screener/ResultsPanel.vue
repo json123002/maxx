@@ -2,9 +2,11 @@
 /* ===== 结果区:页签 / 排序 / 桌面表格 / 手机卡片 / 无限滚动 / CSV 导出
    (移植自旧 screener-app.js 渲染部分,表格和卡片两套都渲染,显隐由全局 css 媒体查询控制)===== */
 import { computed, inject, onMounted, onUnmounted, ref } from "vue";
+import { message } from "ant-design-vue";
 import { cls, fmtN, fmtYiC, fmtYiT, quoteUrl } from "../utils/format";
 import { fmtMetric, metricCardExtras } from "./metrics";
 import { IS_MOBILE } from "./useScreener";
+import { inWatch, loadWatchCodes, toggleWatch } from "../stores/watchlist";
 
 const emit = defineEmits(["analysis"]);
 
@@ -64,6 +66,18 @@ function onTag(ind) {
   selectIndustry(ind);
 }
 
+// 自选星标:登录后拉一次代码集合;点击切换,失败提示
+loadWatchCodes();
+async function onStar(r) {
+  const added = !inWatch(r.f12);
+  try {
+    await toggleWatch(r.f12, added);
+    message.success(added ? "已添加自选 " + r.f14 : "已移除自选 " + r.f14);
+  } catch (err) {
+    if (err.message !== "unauthorized") message.error(err.message || "操作失败");
+  }
+}
+
 // 空结果提示(手机端)
 const emptyHtml = computed(() =>
   hasRun.value && !allRows.value.length
@@ -112,6 +126,7 @@ onUnmounted(() => observer && observer.disconnect());
       <table id="stockTbl">
         <thead>
           <tr>
+            <th style="cursor:default;width:34px" title="自选"></th>
             <th v-for="h in stockHead" :key="h.k" :class="[h.l ? 'l' : '', stockThCls(h.k)]" @click="onStockTh(h.k)">{{ h.name }}</th>
             <th v-for="d in extraCols" :key="d.k" :class="stockThCls(d.k)" @click="onStockTh(d.k)">{{ d.name + (d.unit ? "(" + d.unit + ")" : "") }}</th>
             <th style="cursor:default">分析</th>
@@ -119,6 +134,15 @@ onUnmounted(() => observer && observer.disconnect());
         </thead>
         <tbody>
           <tr v-for="r in tableRows" :key="r.f12">
+            <td>
+              <button class="starBtn" :class="{ on: inWatch(r.f12) }"
+                      :title="inWatch(r.f12) ? '移除自选' : '添加自选'" @click="onStar(r)">
+                <svg width="14" height="14" viewBox="0 0 24 24" :fill="inWatch(r.f12) ? 'currentColor' : 'none'"
+                     stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+                  <path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z" />
+                </svg>
+              </button>
+            </td>
             <td class="l">{{ r.f12 }}</td>
             <td class="l name"><a class="nameLink" :href="quoteUrl(r.f12)" target="_blank" rel="noopener">{{ r.f14 }}</a></td>
             <td>{{ fmtN(r.f2) }}</td>
@@ -166,6 +190,13 @@ onUnmounted(() => observer && observer.disconnect());
           <span class="tag" @click.prevent="onTag(r.f100)">{{ r.f100 || "—" }}</span>
           <span class="sub">额 {{ fmtYiC(r.f6) }} · 市值 {{ fmtYiC(r.f20) }} · PE {{ fmtN(r.f9, 1) }}{{ cardExtras(r) }}</span>
           <button class="anaBtn" @click.prevent.stop="emit('analysis', r.f12)">分析</button>
+          <button class="starBtn" :class="{ on: inWatch(r.f12) }"
+                  :title="inWatch(r.f12) ? '移除自选' : '添加自选'" @click.prevent.stop="onStar(r)">
+            <svg width="14" height="14" viewBox="0 0 24 24" :fill="inWatch(r.f12) ? 'currentColor' : 'none'"
+                 stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+              <path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z" />
+            </svg>
+          </button>
         </div>
       </a>
     </div>

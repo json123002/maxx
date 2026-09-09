@@ -11,6 +11,8 @@ const routes = [
       { path: "home", name: "home", component: () => import("../views/HomeView.vue"), meta: { title: "工作台" } },
       { path: "screener", name: "screener", component: () => import("../views/ScreenerView.vue"), meta: { title: "换手率筛选" } },
       { path: "admin", name: "admin", component: () => import("../views/AdminView.vue"), meta: { title: "用户管理", admin: true } },
+      { path: "watchlist", name: "watchlist", component: () => import("../views/WatchlistView.vue"), meta: { title: "我的自选" } },
+      { path: "stock/:code", name: "stock", component: () => import("../views/StockView.vue"), meta: { title: "个股详情" } },
     ],
   },
   { path: "/:pathMatch(.*)*", redirect: "/" },

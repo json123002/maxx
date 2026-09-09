@@ -77,7 +77,7 @@ import { ref, computed, h } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   DownOutlined, KeyOutlined, LogoutOutlined,
-  DashboardOutlined, FundViewOutlined, TeamOutlined,
+  DashboardOutlined, FundViewOutlined, TeamOutlined, StarOutlined,
 } from "@ant-design/icons-vue";
 import { authState, logout } from "../stores/auth";
 import { themeMode, toggleTheme } from "../utils/theme";
@@ -93,6 +93,7 @@ const MENUS = [
   { path: "/home", title: "工作台", icon: DashboardOutlined },
   { path: "/screener", title: "换手率筛选", icon: FundViewOutlined },
   { path: "/admin", title: "用户管理", icon: TeamOutlined, adminOnly: true },
+  { path: "/watchlist", title: "我的自选", icon: StarOutlined },
 ];
 const menus = computed(() =>
   MENUS.filter(m => !m.adminOnly || ["super", "admin"].includes(authState.user?.role))
