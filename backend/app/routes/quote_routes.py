@@ -1,10 +1,11 @@
-"""行情查询：筛选列表 / 元信息（行业统计+情绪统计） / 健康检查。
+"""行情查询：筛选列表 / 元信息（行业统计+情绪统计） / 单股快照 / 健康检查。
 
 所有 /api/quote/* 需要登录且账号未被禁用。
 返回行保留东财字段名（f12/f14/f2...），与前端现有渲染逻辑零改动兼容。
 """
 import json
 import math
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -182,6 +183,7 @@ def quote_meta(markets: str | None = Query(default=None),
         "SELECT COUNT(*) AS valid,"
         " SUM(CASE WHEN f3 > 0 THEN 1 ELSE 0 END) AS up,"
         " SUM(CASE WHEN f3 < 0 THEN 1 ELSE 0 END) AS down,"
+        " SUM(CASE WHEN f3 = 0 THEN 1 ELSE 0 END) AS flat,"
         " SUM(CASE WHEN f3 <= -5 THEN 1 ELSE 0 END) AS big_down,"
         " SUM(CASE WHEN limit_up = 1 AND name NOT LIKE '%ST%'"
         "     THEN 1 ELSE 0 END) AS limit_up,"
@@ -196,8 +198,21 @@ def quote_meta(markets: str | None = Query(default=None),
         "snapshot_total": meta["total"],
         "industries": [dict(r) for r in inds],
         "stats": {k: (stats[k] or 0) for k in
-                  ("valid", "up", "down", "big_down", "limit_up", "limit_down")},
+                  ("valid", "up", "down", "flat", "big_down",
+                   "limit_up", "limit_down")},
     }
+
+
+@router.get("/api/quote/stock/{code}")
+def quote_stock(code: str, user=Depends(current_user)):
+    """单股最新快照（个股详情页用）。"""
+    if not re.fullmatch(r"\d{6}", code):
+        raise HTTPException(400, "股票代码须为 6 位数字")
+    row = get_conn().execute(
+        "SELECT * FROM latest WHERE code = ?", (code,)).fetchone()
+    if not row:
+        raise HTTPException(404, "未找到该股票（可能已退市或代码有误）")
+    return {"row": _row_to_fkeys(row)}
 
 
 @router.get("/api/health")

@@ -122,6 +122,7 @@ def test_quote_meta_stats(client):
     assert m["stats"]["valid"] == 4              # 停牌股不计
     assert m["stats"]["up"] == 2
     assert m["stats"]["down"] == 2               # 平盘不计入下跌
+    assert m["stats"]["flat"] == 0               # 平盘单独计数(无 f3=0 的行)
     assert m["stats"]["limit_up"] == 2           # 主板/创业板封板各 1
     assert m["stats"]["limit_down"] == 1         # 非 ST 跌停计入;ST 跌停按口径剔除
     names = {x["name"] for x in m["industries"]}

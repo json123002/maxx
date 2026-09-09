@@ -35,7 +35,7 @@
             <i class="up" :style="{ width: upPct + '%' }"></i>
             <i class="down" :style="{ width: 100 - upPct + '%' }"></i>
           </div>
-          <div class="bCap">两市共 {{ stats.valid ?? "—" }} 只有效个股</div>
+          <div class="bCap">两市共 {{ stats.valid ?? "—" }} 只有效个股<span v-if="stats.flat != null"> · 平盘 {{ stats.flat }}</span></div>
         </div>
         <!-- 涨跌停 -->
         <div class="pLimits">
@@ -139,7 +139,7 @@ const greeting = computed(() => {
 const fetchedAt = ref("");
 const source = ref("");
 const stale = ref(false);
-const stats = reactive({ valid: null, up: null, down: null, limit_up: null, limit_down: null, big_down: null });
+const stats = reactive({ valid: null, up: null, down: null, flat: null, limit_up: null, limit_down: null, big_down: null });
 const senti = reactive({ temp: null, level: "", lv: 3 });
 const sentiTitle = ref("");
 const hot = ref([]);
@@ -158,7 +158,7 @@ function computeSenti(s) {
   senti.level = temp < 20 ? "冰点" : temp < 40 ? "低迷" : temp < 60 ? "中性" : temp < 80 ? "活跃" : "亢奋";
   senti.lv = temp < 20 ? 1 : temp < 40 ? 2 : temp < 60 ? 3 : temp < 80 ? 4 : 5;
   sentiTitle.value = `市场情绪 ${temp}/100 · ${senti.level}`
-    + `\n· 上涨 ${s.up} 家 · 下跌 ${s.down ?? s.valid - s.up} 家`
+    + `\n· 上涨 ${s.up} 家 · 下跌 ${s.down ?? (s.valid - s.up)} 家 · 平盘 ${s.flat ?? "—"} 家`
     + `\n· 涨停 ${s.limit_up} / 跌停 ${s.limit_down}`
     + "\n· 指数量能:缺失(按中性计)";
 }
@@ -190,7 +190,7 @@ async function load() {
     fetchedAt.value = (meta.fetched_at || "").replace("T", " ").slice(5, 16);
     source.value = meta.source;
     stale.value = !!meta.stale;
-    Object.assign(stats, meta.stats);
+    Object.assign(stats, meta.stats, { down: meta.stats.down ?? (meta.stats.valid - meta.stats.up) });
     computeSenti(meta.stats);
     hot.value = pickTopComposite(list.rows || [], 6);
   } catch { /* 未登录跳转由 api client 处理;其余失败保持占位 */ }

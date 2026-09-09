@@ -1,6 +1,9 @@
 """东方财富全市场快照抓取（服务端直连 HTTP，不再走浏览器 JSONP）。
 
-接口与前端原版一致：clist/get，pz=100/页，fid=f8 按换手率排序。
+接口与前端原版一致：clist/get，pz=100/页。
+分页排序必须用 fid=f12（按代码）：盘中按换手率(fid=f8)排序时排名逐秒变动，
+翻页间行错位、按 code 去重后每轮快照会随机丢 150~400 只股票，
+直接导致市场脉搏的上涨/下跌家数偏少（2026-09-09 实测丢股 4~7%）。
 停牌/无数据字段东财返回 "-"，统一归一化为 None。
 """
 import logging
@@ -80,7 +83,7 @@ def _fetch_page(host: str, pn: int) -> dict:
     r = _session.get(
         host + "/api/qt/clist/get",
         params={"pn": pn, "pz": PAGE_SIZE, "po": 1, "np": 1, "fltt": 2,
-                "invt": 2, "fid": "f8", "fs": FS_ALL, "fields": FIELDS},
+                "invt": 2, "fid": "f12", "fs": FS_ALL, "fields": FIELDS},
         timeout=10,
     )
     r.raise_for_status()

@@ -180,7 +180,8 @@ export function useScreener() {
     const scope = mktLabels.length ? mktLabels.join("、") : "全市场";
     senti.title = `市场情绪 ${temp}/100 · ${level}\n` +
       `· 范围：${scope}（共 ${stats.valid} 只有效股）\n` +
-      `· 上涨 ${stats.up} 家（${upPct}%） · 下跌 ${stats.down ?? stats.valid - stats.up} 家\n` +
+      `· 上涨 ${stats.up} 家（${upPct}%） · 下跌 ${stats.down ?? (stats.valid - stats.up)} 家` +
+      (stats.flat != null ? ` · 平盘 ${stats.flat} 家` : "") + `\n` +
       `· 涨停 ${stats.limit_up} / 跌停 ${stats.limit_down}\n` +
       `· 大跌(>5%) ${stats.big_down} 家\n` +
       (volRatio !== null
