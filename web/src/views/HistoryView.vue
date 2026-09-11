@@ -140,7 +140,7 @@ onMounted(loadDates);
 </template>
 
 <style scoped>
-.hisWrap { max-width: var(--page-max, none); margin: 0 auto; padding: 12px 0 48px; }
+.hisWrap { padding: 12px 0 48px; }
 .blk { margin-top: 10px; }
 .secHead {
   display: flex; align-items: baseline; gap: 12px;

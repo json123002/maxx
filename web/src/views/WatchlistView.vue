@@ -195,7 +195,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* ===== 布局:编辑排印风,与工作台/用户管理一致 ===== */
-.watchWrap { max-width: var(--page-max, none); margin: 0 auto; padding: 12px 0 48px; }
+.watchWrap { padding: 12px 0 48px; }
 
 /* ===== 搜索框:ChatGPT 式大输入框 + 浮层下拉 ===== */
 .searchBox { position: relative; margin-top: 10px; z-index: 20; }

@@ -10,11 +10,9 @@ import "ant-design-vue/dist/reset.css";
 import App from "./App.vue";
 import router from "./router";
 import { initTheme } from "./utils/theme";
-import { initLayout } from "./utils/layout";
 import "./assets/screener.css";
 
 initTheme();
-initLayout();
 
 // 注:AdminView 的 Table/Select/Popconfirm/Radio 在该页面内按需引入,
 // 管理页是懒加载路由,这样主包不背这些重组件。

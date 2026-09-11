@@ -34,12 +34,6 @@
         <span class="hdrTitle">{{ route.meta.title || "" }}</span>
         <span class="hdrNote">数据源:东方财富 · 仅作客观数据筛选,不构成投资建议</span>
         <span class="hdrSpacer"></span>
-        <a-tooltip :title="layoutWide ? '切换居中窄栏' : '切换铺开全宽'">
-          <button class="iconBtn" @click="toggleLayout">
-            <ShrinkOutlined v-if="layoutWide" />
-            <ArrowsAltOutlined v-else />
-          </button>
-        </a-tooltip>
         <a-tooltip :title="themeMode === 'light' ? '切换深色' : '切换浅色'">
           <button class="iconBtn" @click="toggleTheme">
             <MoonIcon v-if="themeMode === 'light'" />
@@ -84,11 +78,10 @@ import { useRoute, useRouter } from "vue-router";
 import {
   DownOutlined, KeyOutlined, LogoutOutlined,
   DashboardOutlined, FundViewOutlined, TeamOutlined, StarOutlined,
-  FileTextOutlined, HistoryOutlined, ArrowsAltOutlined, ShrinkOutlined,
+  FileTextOutlined, HistoryOutlined,
 } from "@ant-design/icons-vue";
 import { authState, logout } from "../stores/auth";
 import { themeMode, toggleTheme } from "../utils/theme";
-import { layoutWide, toggleLayout } from "../utils/layout";
 import PwdModal from "./PwdModal.vue";
 
 const route = useRoute();
