@@ -1,14 +1,18 @@
 """涨停雷达：一进二候选筛选（服务端粗筛层）。
 
 口径：昨日（history 最新交易日）首板涨停 ∩ 今日（latest 快照）竞价/量能/资金过滤。
-竞价金额占比、上板时间、分时结构需要盘中精细数据，由个股弹窗终检，不在此层；
-基因筛查基于收盘价序列（A杀/最高连板可判，炸板上影线因无 OHLC 不在此层判定）。
+基因与前高基于个股日K缓存（kline 模块，前复权 250 日）：前高取区间最高价，
+基因含 A杀/最高连板/炸板（盘中触及涨停但收盘未封）；日K不可用时退化到
+history 收盘序列（无炸板维度、窗口受落库天数限制）。
+竞价金额占比、上板时间、分时结构需要盘中精细数据，由个股弹窗终检，不在此层。
 """
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
 
+from .. import kline
 from ..db import get_conn
 from ..security import current_user
 
@@ -26,7 +30,15 @@ DIST_BREAK = 0.0             # 距前高：>=0 视为强势突破（涨停价越
 DIST_ROOM = -20.0            # <= -20% 上方空间足
 DIST_DANGER = (-12.0, -4.0)  # 距前高 8% 左右的阻力区，坚决不碰
 GENE_DAYS = 250              # 基因统计窗口（约一年交易日）
-PREV_HIGH_DAYS = 120         # 前高参考窗口（收盘口径）
+PREV_HIGH_DAYS = 120         # 前高参考窗口（日K最高价口径）
+ZHABAN_BAD = 3               # 一年内炸板 >=3 次 = 基因不合格（"一直炸板"）
+KLINE_MIN_BARS = 20          # 日K少于此数视为不可用，退化 history 口径
+KLINE_WORKERS = 8            # 候选股日K并发预取线程数
+
+# 各市场涨跌停幅度阈值%（由日K涨跌幅判定涨跌停，略留容差）；
+# 无需 5% 档：候选 SQL 已排除 ST（name NOT LIKE '%ST%'），进不来这层
+LIMIT_PCT = {"沪主板": 9.8, "深主板": 9.8, "创业板": 19.5,
+             "科创板": 19.5, "北交所": 29.5}
 
 # 维度口径说明（随响应下发,前端「判定理由」直接引用,避免前后端阈值漂移）
 RULES = {
@@ -34,8 +46,8 @@ RULES = {
     "tov": "名义换手 10~25%（6~30% 可观察；实际换手口径偏宽）",
     "amt": "今日成交额/昨日 0.5~1.5（0.3~2.5 可观察）",
     "main": "主力净流入 > 1 亿",
-    "dist": "涨停价突破前高或空间 >20%；距前高 8% 左右坚决不碰",
-    "gene": "近一年无 A杀记录，最高连板 <3",
+    "dist": "涨停价突破前高或空间 >20%；距前高 8% 左右坚决不碰（前高=120 日日K最高价）",
+    "gene": "近一年无 A杀、炸板 <3 次，最高连板 <3",
 }
 
 
@@ -82,6 +94,30 @@ def _gene(flags_desc):
     return kill_a, max_streak
 
 
+def _gene_bars(bars, th):
+    """日K序列（升序）→ (A杀次数, 最高连板, 炸板次数)。
+
+    涨跌停由日涨跌幅判定（主板 9.8 / 创业科创 19.5 / 北交所 29.5）；
+    炸板 = 盘中最高价触及涨停但收盘未封（上影线基因）：
+    最高价涨幅用前复权价自算（与收盘同尺度），收盘涨跌幅用官方字段。
+    """
+    flags = []
+    zhaban = 0
+    prev_close = None
+    for b in bars:
+        pct = b["pct"]
+        up = pct is not None and pct >= th
+        down = pct is not None and pct <= -th
+        if prev_close and b["high"] and pct is not None and not up:
+            high_pct = (b["high"] / prev_close - 1) * 100
+            if high_pct >= th - 0.3 and pct < th - 1.0:
+                zhaban += 1
+        flags.append((up, down))
+        prev_close = b["close"] or prev_close
+    kill_a, max_streak = _gene(flags)
+    return kill_a, max_streak, zhaban
+
+
 def _grade_dist(dist):
     """距前高：突破(>=0)或空间足(<=-20%) ✅；阻力区(-12~-4%) ❌；其余 ⚠️。"""
     if dist is None:
@@ -112,6 +148,10 @@ def radar_1to2(user=Depends(current_user)):
         return {"date": dates[0] if dates else "", "rows": [], "rules": RULES,
                 "note": "历史数据不足两天，每交易日 15:06 收盘落库后再看"}
     t0, t1 = dates  # t0=昨日（首板日），t1=前日
+    # t0 == 今天 = 收盘落库后的复盘视角:竞价/额比衡量的是"次日早晨",
+    # 复盘时它们是首板当天已发生的旧值,降级为待确认、不参与否决;
+    # 下个交易日早盘快照刷新后自动恢复实盘口径
+    review = datetime.now().date().isoformat() == t0
 
     yd = conn.execute(
         "SELECT h.code, h.name, h.industry, h.market, h.f6 AS y_amt"
@@ -131,7 +171,14 @@ def radar_1to2(user=Depends(current_user)):
     today = {r["code"]: r for r in conn.execute(
         "SELECT * FROM latest WHERE code IN (" + marks + ")", codes).fetchall()}
 
-    # 基因与前高：一次拉出候选票近一年的收盘/涨跌停序列，内存里算
+    # 候选股日K并发预取（缓存命中时只是本地查询，首次约每票一次 HTTP）
+    bars_map = {}
+    with ThreadPoolExecutor(max_workers=KLINE_WORKERS) as ex:
+        for code, bars in zip(codes, ex.map(
+                lambda c: kline.get_bars(c, GENE_DAYS), codes)):
+            bars_map[code] = bars
+
+    # 退化路径用：history 里的收盘/涨跌停序列（无日K时兜底）
     hist = defaultdict(list)
     for r in conn.execute(
             "SELECT code, trade_date, f2, limit_up, limit_down FROM history"
@@ -148,10 +195,21 @@ def radar_1to2(user=Depends(current_user)):
         if not t or t["f2"] is None:
             continue  # 今日停牌/无快照，无法评估
         hd = hist.get(code, [])
-        prev = [r["f2"] for r in hd if r["trade_date"] < t0 and r["f2"]][:PREV_HIGH_DAYS]
-        prev_high = max(prev) if prev else None
-        kill_a, max_streak = _gene(
-            [(r["limit_up"], r["limit_down"]) for r in reversed(hd)])
+        bars = [b for b in bars_map.get(code) or [] if b["date"] <= t0]
+        if len(bars) >= KLINE_MIN_BARS:
+            # 日K口径：前高 = 区间最高价（前复权，与快照价可比）；基因含炸板
+            pre = [b for b in bars if b["date"] < t0][-PREV_HIGH_DAYS:]
+            prev_high = max((b["high"] for b in pre if b["high"]), default=None)
+            th = LIMIT_PCT.get(t["market"] or y["market"], 9.8)
+            kill_a, max_streak, zhaban = _gene_bars(bars, th)
+        else:
+            # 退化口径：前高 = history 区间收盘最高；基因无炸板维度
+            prev = [r["f2"] for r in hd if r["trade_date"] < t0
+                    and r["f2"]][:PREV_HIGH_DAYS]
+            prev_high = max(prev) if prev else None
+            kill_a, max_streak = _gene(
+                [(r["limit_up"], r["limit_down"]) for r in reversed(hd)])
+            zhaban = None
 
         f18 = t["f18"] or _prev_close(hd, t0)
         open_pct = ((t["f17"] - f18) / f18 * 100
@@ -163,15 +221,15 @@ def radar_1to2(user=Depends(current_user)):
                 if ref and prev_high else None)
 
         dims = {
-            "open": _grade(open_pct, OPEN_GOOD, OPEN_WARN),
+            "open": ("warn" if review else _grade(open_pct, OPEN_GOOD, OPEN_WARN)),
             "tov": _grade(t["f8"], TOV_GOOD, TOV_WARN),
-            "amt": _grade(amt_ratio, AMT_GOOD, AMT_WARN),
+            "amt": ("warn" if review else _grade(amt_ratio, AMT_GOOD, AMT_WARN)),
             "main": ("warn" if main_net_yi is None else
                      "good" if main_net_yi > MAIN_NET_GOOD_YI else
                      "warn" if main_net_yi >= 0 else "bad"),
             "dist": _grade_dist(dist),
-            "gene": ("bad" if kill_a > 0 else
-                     "warn" if max_streak >= 3 else "good"),
+            "gene": ("bad" if kill_a > 0 or (zhaban or 0) >= ZHABAN_BAD else
+                     "warn" if max_streak >= 3 or zhaban else "good"),
         }
         verdict = ("放弃" if "bad" in dims.values() else
                    "观察" if "warn" in dims.values() else "候选")
@@ -187,15 +245,12 @@ def radar_1to2(user=Depends(current_user)):
                             if main_net_yi is not None else None),
             "prev_high": prev_high,
             "dist_high": round(dist, 1) if dist is not None else None,
-            "kill_a": kill_a, "max_streak": max_streak,
+            "kill_a": kill_a, "max_streak": max_streak, "zhaban": zhaban,
             "dims": dims, "verdict": verdict,
         })
     rank = {"候选": 0, "观察": 1, "放弃": 2}
     rows.sort(key=lambda r: (rank[r["verdict"]],
                              -(r["main_net_yi"] or -999)))
     stat = {v: sum(1 for r in rows if r["verdict"] == v) for v in rank}
-    # t0 == 今天 = 收盘落库后：今日首板已定型,竞价/额比是今日实际值(复盘视角),
-    # 下个交易日早盘才是「昨日首板 × 今日竞价」的实盘视角
-    review = datetime.now().date().isoformat() == t0
     return {"date": t0, "rows": rows, "stat": stat, "rules": RULES,
             "review": review}

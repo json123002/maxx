@@ -10,9 +10,10 @@ os.environ["TS_ROOT_PASSWORD"] = "test-root-pw"
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import config, db, scheduler  # noqa: E402
+from app import config, db, kline, scheduler  # noqa: E402
 from app.fetcher import limit_flags  # noqa: E402
 from app.main import app  # noqa: E402
+from app.routes import radar_routes as rr  # noqa: E402
 from app.routes import watchlist_routes as wr  # noqa: E402
 from app.routes.quote_routes import build_filter_sql  # noqa: E402
 
@@ -532,12 +533,41 @@ def _hist(date, code, name, f2, lu, ld=0, f6=None):
     conn.commit()
 
 
-def test_radar_1to2(client):
+def _pin_radar_today(monkeypatch, iso):
+    """把雷达路由的"今天"钉成指定日期,与真实跑测日期解耦。
+
+    radar_routes 以 `from datetime import datetime` 引入,替换其模块级
+    datetime 即可;只需支持 now().date().isoformat() 调用链。
+    """
+    class _FakeDate:
+        @staticmethod
+        def isoformat():
+            return iso
+
+    class _FakeNow:
+        @staticmethod
+        def date():
+            return _FakeDate
+
+    class _FakeDatetime:
+        @staticmethod
+        def now():
+            return _FakeNow
+
+    monkeypatch.setattr(rr, "datetime", _FakeDatetime)
+
+
+def test_radar_1to2(client, monkeypatch):
     h = login(client, "admin", "admin123")
+    _pin_radar_today(monkeypatch, "2026-09-11")  # t0=09-12 ≠ 今天 → 实盘口径
+    monkeypatch.setattr(kline, "get_bars",
+                        lambda code, days=250: [])  # 无日K → 退化 history 口径
     # 基因序列:600005 在 09-08/09-09 两连板后 09-10/09-11 连续跌停 = A杀一次
     _hist("2026-09-08", "600005", "测试基因", 7.5, 1, f6=8e7)
     _hist("2026-09-09", "600005", "测试基因", 8.25, 1, f6=9e7)
     _hist("2026-09-10", "600005", "测试基因", 7.43, 0, ld=1, f6=1.1e8)
+    # 600001 的前高锚点(收盘 10.0):自给自足,不依赖其它用例落库的 SAMPLE 行
+    _hist("2026-09-09", "600001", "测试钢铁", 10.0, 0, f6=3e8)
     # 前日(t1=09-11):候选票都不涨停(首板判定);300001 涨停(→ 次日算连板,排除)
     _hist("2026-09-11", "600001", "测试钢铁", 9.5, 0, f6=4e8)
     _hist("2026-09-11", "600005", "测试基因", 6.69, 0, ld=1, f6=1e8)
@@ -574,3 +604,100 @@ def test_radar_1to2(client):
     assert b["kill_a"] == 1 and b["max_streak"] == 2
     assert d["stat"] == {"候选": 1, "观察": 0, "放弃": 1}
     assert d["rules"]["open"].startswith("高开 3~6%")  # 阈值口径随响应下发
+    assert d["review"] is False                        # t0 是"明天",实盘口径
+
+
+def test_radar_review_mode(client, monkeypatch):
+    """复盘视角(首板日 == 今天):竞价/额比降级为待确认,不参与否决。"""
+    h = login(client, "admin", "admin123")
+    # 把"今天"钉在 09-12(t0 必然 == 今天 → 复盘视角,与真实跑测日期解耦)
+    _pin_radar_today(monkeypatch, "2026-09-12")
+    monkeypatch.setattr(kline, "get_bars", lambda code, days=250: [])
+    # 600006:09-11 未涨停、09-12 首板;竞价 +1%(实盘口径 bad)→ 复盘应降级 warn
+    _hist("2026-09-11", "600006", "复盘股", 9.2, 0, f6=4e8)
+    _hist("2026-09-12", "600006", "复盘股", 10.12, 1, f6=5e8)
+    db.replace_latest([
+        _row("600006", "复盘股", "钢铁", "沪主板", 11.0, 8.7,
+             f350=11.11, f351=9.1, f6=6e8, f8=15.0, f17=10.3, f18=10.12,
+             f62=2e8, f21=60e8),
+    ], "实时行情")
+    d = client.get("/api/radar/1to2", headers=h).json()
+    assert d["review"] is True and d["date"] == "2026-09-12"
+    r = [x for x in d["rows"] if x["f12"] == "600006"][0]
+    assert r["dims"]["open"] == "warn" and r["dims"]["amt"] == "warn"
+    assert r["verdict"] != "放弃"   # 结构维度健康 → 复盘不给死刑
+
+
+def _bar(date, close, pct, high=None):
+    """造一根日K bar(与 kline.get_bars 返回结构一致)。"""
+    return {"date": date, "open": close, "high": high if high is not None else close,
+            "low": close, "close": close, "vol": 1e6, "amount": 1e8, "pct": pct}
+
+
+def test_radar_kline_gene(client, monkeypatch):
+    """日K路径:前高取区间最高价,基因含炸板——均来自日K而非 history。"""
+    h = login(client, "admin", "admin123")
+    bars = []
+    px = 10.5
+    for n in list(range(20, 27)) + list(range(3, 8)):  # 12 根填充 K 线
+        for prefix in ("2026-07-", "2026-08-"):
+            dt = prefix + "%02d" % n
+            if (prefix == "2026-07-") == (n >= 20):
+                bars.append(_bar(dt, px, 0.5))
+                px += 0.02
+    bars += [
+        _bar("2026-08-09", 11.0, 2.6),                # 前一日收 11.0 → 锚点日涨幅够不到涨停
+        _bar("2026-08-10", 10.0, 1.0, high=12.0),   # 前高锚点(最高价 12.0,涨幅 9.1% 不算炸板)
+        _bar("2026-08-11", 10.5, 5.0, high=11.02),  # 炸板:盘中触板 10.2% 未封
+        _bar("2026-08-12", 10.8, 2.86, high=11.55), # 炸板
+        _bar("2026-08-13", 10.9, 0.93, high=11.88), # 炸板(累计 3 次 → 基因不合格)
+        _bar("2026-08-14", 10.45, 10.0),            # 两连板(高点始终低于 12.0 锚点)…
+        _bar("2026-08-15", 11.50, 10.0),
+        _bar("2026-08-16", 10.35, -10.0),           # … 后连续两跌停 = A杀
+        _bar("2026-08-17", 9.32, -10.0),
+        _bar("2026-09-11", 9.5, 1.0),
+        _bar("2026-09-12", 10.45, 10.0),            # t0 首板
+    ]
+    monkeypatch.setattr(kline, "get_bars", lambda code, days=250: bars)
+    _hist("2026-09-11", "600007", "日K股", 9.5, 0, f6=4e8)
+    _hist("2026-09-12", "600007", "日K股", 10.45, 1, f6=5e8)
+    # 快照其余维度全部健康;f350=11.0 < 前高 12.0 → 距前高 -8.3% 落入阻力区
+    db.replace_latest([
+        _row("600007", "日K股", "钢铁", "沪主板", 10.9, 4.31,
+             f350=11.0, f351=9.4, f6=6e8, f8=15.0, f17=10.9, f18=10.45,
+             f62=2e8, f21=50e8),
+    ], "实时行情")
+    d = client.get("/api/radar/1to2", headers=h).json()
+    r = [x for x in d["rows"] if x["f12"] == "600007"][0]
+    assert r["prev_high"] == 12.0 and r["dist_high"] == -8.3  # 最高价口径
+    assert (r["kill_a"], r["max_streak"], r["zhaban"]) == (1, 2, 3)
+    assert r["dims"]["gene"] == "bad" and r["dims"]["dist"] == "bad"
+    assert r["verdict"] == "放弃"
+
+
+def test_kline_cache(client, monkeypatch):
+    """日K缓存:首次触网落库,当天内重复查询直接读缓存不再触网。"""
+    calls = []
+    payload = {"klines": [
+        "2026-09-10,9.20,9.30,9.45,9.10,100000,93000000,0.54,1.09,0.10,1.2",
+        "2026-09-11,9.35,9.50,9.60,9.28,120000,114000000,2.44,2.15,0.20,1.5",
+    ]}
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": payload}
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append(url)
+        return _Resp()
+
+    monkeypatch.setattr(kline._session, "get", fake_get)
+    bars = kline.get_bars("600999")
+    assert [b["date"] for b in bars] == ["2026-09-10", "2026-09-11"]
+    assert bars[1]["close"] == 9.50 and bars[1]["high"] == 9.60
+    assert bars[1]["pct"] == 2.15            # f59 官方涨跌幅
+    again = kline.get_bars("600999")
+    assert again == bars and len(calls) == 1  # 当天内第二次不触网

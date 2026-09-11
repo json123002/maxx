@@ -117,6 +117,19 @@ def init_db() -> None:
             region     TEXT NOT NULL,
             fetched_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS kline (
+            code    TEXT NOT NULL,
+            date    TEXT NOT NULL,
+            open REAL, high REAL, low REAL, close REAL,
+            vol REAL, amount REAL, pct REAL,
+            PRIMARY KEY (code, date)
+        );
+
+        CREATE TABLE IF NOT EXISTS kline_meta (
+            code         TEXT PRIMARY KEY,
+            fetched_date TEXT NOT NULL
+        );
         """
     )
     _migrate_quote_cols(conn)
