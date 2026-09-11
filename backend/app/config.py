@@ -21,6 +21,10 @@ SESSION_TTL_HOURS = int(os.environ.get("TS_SESSION_TTL_HOURS", "168"))  # 7 天
 # 抓数：交易时段内间隔（分钟）；东财接口限流时指数退避
 FETCH_INTERVAL_MIN = int(os.environ.get("TS_FETCH_INTERVAL_MIN", "3"))
 
+# 每日维护：操作日志保留天数 / 数据库备份保留份数
+LOG_RETENTION_DAYS = int(os.environ.get("TS_LOG_RETENTION_DAYS", "180"))
+BACKUP_KEEP = int(os.environ.get("TS_BACKUP_KEEP", "14"))
+
 # 本地开发时由 FastAPI 直接托管的前端目录（生产由 nginx 托管，不影响）
 FRONTEND_DIR = os.environ.get(
     "TS_FRONTEND_DIR", os.path.normpath(os.path.join(BASE_DIR, "..", "frontend"))

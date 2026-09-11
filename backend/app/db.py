@@ -238,3 +238,40 @@ def save_history(trade_date: str) -> int:
             (trade_date,),
         )
     return cur.rowcount
+
+
+def prune_op_logs(days: int) -> int:
+    """清理过期的操作日志（每日维护任务调用）。"""
+    from datetime import datetime, timedelta
+
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM op_logs WHERE ts < ?", (cutoff,))
+    return cur.rowcount
+
+
+def backup_db(backup_dir: str = None, keep: int = None) -> str:
+    """在线热备份整个数据库（sqlite backup API，WAL 下安全），滚动保留 N 份。
+
+    备份含 users/history 等全部数据，是防磁盘故障的唯一副本——
+    重要时期建议再异地下载一份。
+    """
+    from datetime import datetime
+
+    keep = config.BACKUP_KEEP if keep is None else keep
+    bdir = backup_dir or os.path.join(
+        os.path.dirname(config.DB_PATH), "backups")
+    os.makedirs(bdir, exist_ok=True)
+    dst_path = os.path.join(
+        bdir, "screener-%s.db" % datetime.now().strftime("%Y%m%d"))
+    dst = sqlite3.connect(dst_path)
+    try:
+        with dst:
+            get_conn().backup(dst)
+    finally:
+        dst.close()
+    # 滚动清理最旧的备份
+    files = sorted(f for f in os.listdir(bdir) if f.startswith("screener-"))
+    for f in files[:-keep]:
+        os.remove(os.path.join(bdir, f))
+    return dst_path

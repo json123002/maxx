@@ -48,6 +48,16 @@ def history_job() -> None:
     log.info("history saved for %s: %s rows", now.date(), n)
 
 
+def maintenance_job() -> None:
+    """每日维护：清理过期操作日志 + 热备份数据库。"""
+    try:
+        n = db.prune_op_logs(config.LOG_RETENTION_DAYS)
+        p = db.backup_db()
+        log.info("maintenance: pruned %s op_logs, backup -> %s", n, p)
+    except Exception as e:  # noqa: BLE001 - 维护失败不影响主业务
+        log.error("maintenance failed: %s", e)
+
+
 def start() -> None:
     global _sched
     if _sched:
@@ -57,6 +67,8 @@ def start() -> None:
                    id="fetch", max_instances=1, coalesce=True)
     _sched.add_job(history_job, "cron", day_of_week="mon-fri",
                    hour=15, minute=6, id="history")
+    _sched.add_job(maintenance_job, "cron", hour=3, minute=30,
+                   id="maintenance")
     _sched.start()
     # 启动立即抓一次（异步，不阻塞服务启动）
     threading.Thread(target=fetch_job, kwargs={"force": True}, daemon=True).start()

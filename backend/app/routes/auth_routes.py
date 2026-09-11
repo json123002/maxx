@@ -1,5 +1,6 @@
 """登录 / 登出 / 当前用户 / 改密。注册不开放，用户由管理员创建。"""
 import re
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -11,6 +12,21 @@ from ..security import (create_session, current_user, drop_session,
                         hash_password, verify_password)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# 登录防爆破：同一用户名或同一 IP 在窗口期内连续失败达到上限 → 429
+_FAIL_WINDOW_MIN = 10
+_FAIL_LIMIT = 10
+
+
+def _too_many_failures(username: str, ip: str) -> bool:
+    since = (datetime.now() - timedelta(minutes=_FAIL_WINDOW_MIN)
+             ).isoformat(timespec="seconds")
+    n = get_conn().execute(
+        "SELECT COUNT(*) AS c FROM op_logs"
+        " WHERE action = 'login_fail' AND ts > ?"
+        " AND (username = ? OR (ip != '' AND ip = ?))",
+        (since, username, ip)).fetchone()["c"]
+    return n >= _FAIL_LIMIT
 
 
 def _public_user(u) -> dict:
@@ -35,14 +51,19 @@ class ChangePwdIn(BaseModel):
 def login(body: LoginIn, request: Request):
     ip = client_ip(request)
     ua = user_agent(request)
+    username = body.username.strip()
+    if _too_many_failures(username, ip):
+        log_op({"id": None, "username": username},
+               "login_fail", "触发限流：失败次数过多", ip, ua)
+        raise HTTPException(429, "尝试次数过多，请 %s 分钟后再试" % _FAIL_WINDOW_MIN)
     row = get_conn().execute(
         "SELECT id, username, password_hash, role, enabled, hidden FROM users"
         " WHERE username = ?",
-        (body.username.strip(),),
+        (username,),
     ).fetchone()
     if not row or not verify_password(body.password, row["password_hash"]):
         # 登录失败也记录(暴力破解/输错密码是重要安全信号)
-        log_op({"id": None, "username": body.username.strip()},
+        log_op({"id": None, "username": username},
                "login_fail", "用户名或密码错误", ip, ua)
         raise HTTPException(401, "用户名或密码错误")
     if not row["enabled"]:

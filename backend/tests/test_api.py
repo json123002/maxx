@@ -399,3 +399,47 @@ def test_ip_region_format():
     assert _is_public_ip("127.0.0.1") is False
     assert _is_public_ip("192.168.1.1") is False
     assert _is_public_ip("not-an-ip") is False
+
+
+# ===== 登录防爆破限流 =====
+def test_login_rate_limit(client):
+    # 用独立 IP + 独立用户名，不影响套件里 admin 的正常登录
+    h = {"X-Forwarded-For": "198.51.100.9"}
+    for _ in range(10):
+        r = client.post("/api/auth/login", headers=h,
+                        json={"username": "brute", "password": "x"})
+        assert r.status_code == 401
+    # 第 11 次触发 429;同 IP 换一个用户名也被限(IP 维度)
+    r = client.post("/api/auth/login", headers=h,
+                    json={"username": "brute", "password": "x"})
+    assert r.status_code == 429
+    r = client.post("/api/auth/login", headers=h,
+                    json={"username": "other", "password": "x"})
+    assert r.status_code == 429
+    # 不同 IP 的正常用户不受影响
+    r = client.post("/api/auth/login", headers={"X-Forwarded-For": "198.51.100.10"},
+                    json={"username": "admin", "password": "admin123"})
+    assert r.status_code == 200
+
+
+# ===== 每日维护：备份 + 日志清理 =====
+def test_backup_and_prune(client, tmp_path):
+    # 备份文件可打开且含业务表
+    p = db.backup_db(backup_dir=str(tmp_path), keep=2)
+    import sqlite3
+    chk = sqlite3.connect(p)
+    assert chk.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE name='users'").fetchone()[0] == 1
+    chk.close()
+    # 滚动清理:再备两份,最旧的被删
+    db.backup_db(backup_dir=str(tmp_path), keep=2)
+    db.backup_db(backup_dir=str(tmp_path), keep=2)
+    assert len([f for f in os.listdir(tmp_path) if f.startswith("screener-")]) == 1
+    # 日志清理:过期删除,近期保留
+    conn = db.get_conn()
+    with conn:
+        conn.execute("INSERT INTO op_logs (ts, username, action) VALUES"
+                     " ('2020-01-01T00:00:00', 'old', 'login')")
+    assert db.prune_op_logs(180) == 1
+    assert conn.execute(
+        "SELECT COUNT(*) AS c FROM op_logs WHERE username = 'old'").fetchone()["c"] == 0
