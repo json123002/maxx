@@ -57,6 +57,7 @@ const results = ref([]);
 const searching = ref(false);
 const dropOpen = ref(false);
 const searchBox = ref(null);
+const active = ref(0); // 键盘高亮项(↑↓ 移动,Enter 选中,Esc 关闭)
 let timer = null;
 
 function onInput() {
@@ -72,6 +73,7 @@ function onInput() {
     try {
       const d = await api("/api/watchlist/search?kw=" + encodeURIComponent(q));
       results.value = d.rows;
+      active.value = 0;
       dropOpen.value = true;
     } catch (err) {
       if (err.message !== "unauthorized") message.error(err.message || "搜索失败");
@@ -79,6 +81,45 @@ function onInput() {
       searching.value = false;
     }
   }, 250);
+}
+
+// 键盘操作:↑↓ 移动高亮 / Enter 添加当前项 / Esc 收起
+function onKey(e) {
+  if (e.key === "Escape") {
+    dropOpen.value = false;
+    return;
+  }
+  if (!dropOpen.value || !results.value.length) return;
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    active.value = (active.value + 1) % results.value.length;
+    scrollActive();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    active.value = (active.value - 1 + results.value.length) % results.value.length;
+    scrollActive();
+  } else if (e.key === "Enter") {
+    const r = results.value[active.value];
+    if (r && !r.added) add(r);
+  }
+}
+
+function scrollActive() {
+  const el = searchBox.value && searchBox.value.querySelector(".dropItem.act");
+  if (el) el.scrollIntoView({ block: "nearest" });
+}
+
+// 命中片段拆分(代码/名称里高亮关键字;拼音命中的由后端 pinyin 字段标注)
+function hl(text) {
+  const q = kw.value.trim().toLowerCase();
+  if (!text || !q) return [{ t: text || "", hit: false }];
+  const i = text.toLowerCase().indexOf(q);
+  if (i < 0) return [{ t: text, hit: false }];
+  return [
+    { t: text.slice(0, i), hit: false },
+    { t: text.slice(i, i + q.length), hit: true },
+    { t: text.slice(i + q.length), hit: false },
+  ].filter((s) => s.t);
 }
 
 async function add(r) {
@@ -125,8 +166,9 @@ onBeforeUnmount(() => {
         <input
           v-model="kw"
           class="sInput"
-          placeholder="输入代码或名称，添加自选…"
+          placeholder="输入代码、名称或拼音简写，添加自选…"
           @input="onInput"
+          @keydown="onKey"
           @focus="results.length && (dropOpen = true)"
         />
         <span v-if="searching" class="sSpin"></span>
@@ -135,11 +177,15 @@ onBeforeUnmount(() => {
         <div v-if="!results.length && searching" class="dropEmpty">搜索中…</div>
         <div v-else-if="!results.length" class="dropEmpty">没有找到相关股票</div>
         <button
-          v-for="r in results" :key="r.f12" class="dropItem"
-          :disabled="r.added" @click="add(r)"
+          v-for="(r, i) in results" :key="r.f12" class="dropItem"
+          :class="{ act: i === active }"
+          :disabled="r.added"
+          @mouseenter="active = i"
+          @click="add(r)"
         >
-          <span class="dName">{{ r.f14 }}</span>
-          <span class="dCode">{{ r.f12 }}</span>
+          <span class="dName"><template v-for="(s, j) in hl(r.f14)" :key="j"><mark v-if="s.hit">{{ s.t }}</mark><template v-else>{{ s.t }}</template></template></span>
+          <span class="dCode"><template v-for="(s, j) in hl(r.f12)" :key="j"><mark v-if="s.hit">{{ s.t }}</mark><template v-else>{{ s.t }}</template></template></span>
+          <span v-if="r.pinyin" class="dPy">{{ r.pinyin }}</span>
           <span class="dInd">{{ r.f100 || "—" }}</span>
           <span class="dTov">换手 {{ fmtN(r.f8) }}%</span>
           <span class="dAct" :class="{ on: r.added }">{{ r.added ? "已自选" : "+ 自选" }}</span>
@@ -236,10 +282,15 @@ onBeforeUnmount(() => {
   color: var(--txt); text-align: left; transition: background .12s;
 }
 .dropItem:first-child { border-top: none; }
-.dropItem:hover:not(:disabled) { background: var(--hover); }
+.dropItem:hover:not(:disabled), .dropItem.act:not(:disabled) { background: var(--hover); }
 .dropItem:disabled { cursor: default; opacity: .75; }
+.dropItem mark { background: none; color: var(--accent); font-weight: 700; }
 .dName { font-weight: 600; }
 .dCode { color: var(--dim); font-family: var(--mono); font-size: 12px; }
+.dPy {
+  color: var(--dim); font-family: var(--mono); font-size: 10.5px;
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 4px;
+}
 .dInd { color: var(--dim); font-size: 12px; }
 .dTov { margin-left: auto; color: var(--dim); font-size: 12px; font-family: var(--mono); }
 .dAct {

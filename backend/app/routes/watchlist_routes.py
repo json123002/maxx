@@ -7,6 +7,7 @@
 import re
 from datetime import datetime
 
+import requests
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
@@ -17,6 +18,30 @@ from ..security import current_user
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
 
 CODE_RE = re.compile(r"^\d{6}$")
+LETTER_RE = re.compile(r"^[a-zA-Z]+$")
+
+# 东财搜索联想:拼音简写/全拼 → A股候选(token 为东财网页端公开值)。
+# 与 fetcher 同样 trust_env=False 忽略系统代理;任何失败都不影响本地搜索。
+_suggest = requests.Session()
+_suggest.trust_env = False
+SUGGEST_URL = "https://searchapi.eastmoney.com/api/suggest/get"
+SUGGEST_TOKEN = "D43BF722C8E33BDC906FB84D85E326E8"
+
+
+def _suggest_astock(kw: str, limit: int = 20) -> list[dict]:
+    """拼音联想 → [{code, name, pinyin}](仅 A 股;异常返回空列表)。"""
+    try:
+        r = _suggest.get(SUGGEST_URL, params={
+            "input": kw, "type": 14, "token": SUGGEST_TOKEN, "count": limit,
+        }, timeout=2)
+        data = (r.json().get("QuotationCodeTable") or {}).get("Data") or []
+        return [
+            {"code": d.get("Code", ""), "name": d.get("Name", ""),
+             "pinyin": d.get("PinYin", "")}
+            for d in data if d.get("Classify") == "AStock"
+        ]
+    except Exception:
+        return []
 
 
 class AddIn(BaseModel):
@@ -94,12 +119,17 @@ def watch_remove(code: str, request: Request, user=Depends(current_user)):
 @router.get("/search")
 def watch_search(kw: str = Query(default="", max_length=32),
                  user=Depends(current_user)):
-    """按代码/名称搜索可添加的股票（最多 20 条，附带是否已加自选）。"""
+    """搜索可添加的股票（最多 20 条，附带是否已加自选）。
+
+    数字/中文走本地快照（代码前缀优先、按换手率排）；纯字母走东财拼音联想，
+    合并去重后追加（联想项须存在于本地快照，否则添加后也取不到行情）。
+    """
     kw = kw.strip()
     if not kw:
         return {"rows": []}
+    conn = get_conn()
     like = "%" + kw + "%"
-    rows = get_conn().execute(
+    rows = list(conn.execute(
         "SELECT l.*,"
         " EXISTS(SELECT 1 FROM watchlist w"
         "        WHERE w.user_id = ? AND w.code = l.code) AS added"
@@ -107,5 +137,29 @@ def watch_search(kw: str = Query(default="", max_length=32),
         " WHERE l.f2 IS NOT NULL AND (l.code LIKE ? OR l.name LIKE ?)"
         " ORDER BY (l.code LIKE ?) DESC, l.f8 DESC LIMIT 20",
         (user["id"], like, like, kw + "%"),
-    ).fetchall()
-    return {"rows": [_fkey_row(r, added=bool(r["added"])) for r in rows]}
+    ).fetchall())
+    pinyin_of = {}
+    if LETTER_RE.match(kw) and len(rows) < 20:
+        sugs = [s for s in _suggest_astock(kw)
+                if s["code"] not in {r["code"] for r in rows}]
+        codes = [s["code"] for s in sugs]
+        pinyin_of = {s["code"]: s["pinyin"] for s in sugs}
+        if codes:
+            marks = ",".join("?" * len(codes))
+            by_code = {r["code"]: r for r in conn.execute(
+                "SELECT l.*,"
+                " EXISTS(SELECT 1 FROM watchlist w"
+                "        WHERE w.user_id = ? AND w.code = l.code) AS added"
+                " FROM latest l"
+                " WHERE l.f2 IS NOT NULL AND l.code IN (" + marks + ")",
+                (user["id"], *codes),
+            ).fetchall()}
+            # 保持联想返回的相关度顺序(东财已按热度排序)
+            rows.extend(by_code[c] for c in codes if c in by_code)
+    out = []
+    for r in rows[:20]:
+        d = _fkey_row(r, added=bool(r["added"]))
+        if r["code"] in pinyin_of:
+            d["pinyin"] = pinyin_of[r["code"]]
+        out.append(d)
+    return {"rows": out}

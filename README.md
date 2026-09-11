@@ -16,7 +16,7 @@ maxx/
       scheduler.py    交易时段每 3 分钟抓数 + 每交易日 15:06 落历史
       routes/         auth（登录/改密）· admin（用户管理）· quote（行情查询）
                         · watchlist（自选股）· log（操作日志，仅隐藏 root）
-    tests/            pytest（23 个用例，独立临时库，不触网）
+    tests/            pytest（25 个用例，独立临时库，不触网）
   web/                Vue3 前端工程（Vite + vue-router + ant-design-vue，包管理只用 pnpm）
     src/views/        LoginView(转盘登录) / HomeView(工作台) / ScreenerView(换手率筛选)
                         / WatchlistView(自选股) / StockView(个股详情+日K阶段标注)

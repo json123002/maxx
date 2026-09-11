@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app import config, db, scheduler  # noqa: E402
 from app.fetcher import limit_flags  # noqa: E402
 from app.main import app  # noqa: E402
+from app.routes import watchlist_routes as wr  # noqa: E402
 from app.routes.quote_routes import build_filter_sql  # noqa: E402
 
 scheduler.start = lambda: None     # 测试不启动抓数调度
@@ -271,6 +272,44 @@ def test_watchlist_lifecycle(client):
     assert client.delete("/api/watchlist/600001", headers=h).status_code == 200
     assert client.delete("/api/watchlist/600001", headers=h).status_code == 200
     assert client.get("/api/watchlist", headers=h).json()["rows"] == []
+
+
+def test_watchlist_search_pinyin(client, monkeypatch):
+    """纯字母输入走东财拼音联想：合并去重、仅 A 股、须在本地快照中。"""
+    h = login(client, "admin", "admin123")
+    client.post("/api/watchlist", headers=h, json={"code": "600001"})
+
+    class _Resp:
+        def json(self):
+            return {"QuotationCodeTable": {"Data": [
+                {"Code": "300001", "Name": "测试科技", "PinYin": "CSKJ",
+                 "Classify": "AStock"},
+                {"Code": "600001", "Name": "测试钢铁", "PinYin": "CSGT",
+                 "Classify": "AStock"},
+                {"Code": "09999", "Name": "某港股", "PinYin": "MGG",
+                 "Classify": "HK"},          # 非 A 股：过滤
+                {"Code": "999999", "Name": "不在快照", "PinYin": "BZK",
+                 "Classify": "AStock"},       # 不在本地快照：过滤
+            ]}}
+
+    monkeypatch.setattr(wr._suggest, "get", lambda *a, **k: _Resp())
+    rows = client.get("/api/watchlist/search?kw=cs", headers=h).json()["rows"]
+    assert [r["f12"] for r in rows] == ["300001", "600001"]  # 保持联想相关度序
+    assert rows[0]["pinyin"] == "CSKJ" and not rows[0]["added"]
+    assert rows[1]["added"]                    # 已加自选的联想项带标记
+
+
+def test_watchlist_search_pinyin_fallback(client, monkeypatch):
+    """联想接口异常时静默降级为纯本地搜索，不报错不触网。"""
+    def _boom(*a, **k):
+        raise ConnectionError("suggest down")
+    monkeypatch.setattr(wr._suggest, "get", _boom)
+    h = login(client, "admin", "admin123")
+    assert client.get("/api/watchlist/search?kw=zz", headers=h).json()["rows"] == []
+    # 数字/中文输入不走联想,本地结果不受影响
+    rows = client.get("/api/watchlist/search?kw=测试", headers=h).json()["rows"]
+    codes = {r["f12"] for r in rows}
+    assert {"600001", "300001"} <= codes
 
 
 def test_watchlist_per_user(client):
