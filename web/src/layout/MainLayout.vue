@@ -88,7 +88,7 @@ import { useRoute, useRouter } from "vue-router";
 import {
   DownOutlined, KeyOutlined, LogoutOutlined,
   DashboardOutlined, FundViewOutlined, TeamOutlined, StarOutlined,
-  FileTextOutlined, HistoryOutlined, FireOutlined, SettingOutlined,
+  FileTextOutlined, HistoryOutlined, FireOutlined, SettingOutlined, RadarChartOutlined,
 } from "@ant-design/icons-vue";
 import { authState, logout } from "../stores/auth";
 import { themeMode, toggleTheme } from "../utils/theme";
@@ -106,6 +106,7 @@ const MENUS = [
   { key: "grp-quote", title: "行情筛选", icon: FundViewOutlined, children: [
     { path: "/screener", title: "换手率筛选", icon: FundViewOutlined },
     { path: "/radar", title: "涨停雷达", icon: FireOutlined },
+    { path: "/flow", title: "板块资金", icon: RadarChartOutlined },
     { path: "/history", title: "历史榜单", icon: HistoryOutlined },
   ] },
   { path: "/watchlist", title: "我的自选", icon: StarOutlined },
