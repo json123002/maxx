@@ -24,7 +24,7 @@ const columns = [
   { title: "用户", dataIndex: "username", key: "username", width: 110 },
   { title: "动作", dataIndex: "action", key: "action", width: 110 },
   { title: "详情", dataIndex: "detail", key: "detail" },
-  { title: "IP", dataIndex: "ip", key: "ip", width: 120 },
+  { title: "IP / 归属地", dataIndex: "ip", key: "ip", width: 190 },
 ];
 
 const rows = ref([]);
@@ -126,8 +126,32 @@ onMounted(load);
             <span class="detailTxt">{{ record.detail || "—" }}</span>
           </template>
           <template v-else-if="column.key === 'ip'">
-            <span class="dimTxt">{{ record.ip || "—" }}</span>
+            <div class="ipCell">
+              <span class="dimTxt">{{ record.ip || "—" }}</span>
+              <span v-if="record.region" class="regionTxt">{{ record.region }}</span>
+            </div>
           </template>
+        </template>
+        <!-- 展开行：完整审计细节 -->
+        <template #expandedRowRender="{ record }">
+          <div class="expGrid">
+            <span class="expK">记录 ID</span><span class="expV">#{{ record.id }}</span>
+            <span class="expK">时间</span>
+            <span class="expV">{{ (record.ts || "").replace("T", " ") }}</span>
+            <span class="expK">用户</span>
+            <span class="expV">{{ record.username || "—" }}
+              <span class="dimTxt">(uid {{ record.user_id ?? "—" }})</span></span>
+            <span class="expK">动作</span>
+            <span class="expV">{{ actionLabel(record.action) }}
+              <span class="dimTxt">{{ record.action }}</span></span>
+            <span class="expK">详情</span>
+            <span class="expV detailFull">{{ record.detail || "—" }}</span>
+            <span class="expK">IP</span>
+            <span class="expV">{{ record.ip || "—" }}
+              <span v-if="record.region" class="regionTxt">{{ record.region }}</span></span>
+            <span class="expK">终端</span>
+            <span class="expV detailFull">{{ record.ua || "—（旧记录未采集）" }}</span>
+          </div>
         </template>
       </a-table>
     </section>
@@ -173,6 +197,21 @@ onMounted(load);
 .detailTxt {
   font-size: 12.5px; color: var(--txt); font-family: var(--mono);
   word-break: break-all;
+}
+.ipCell { display: flex; flex-direction: column; gap: 1px; }
+.regionTxt { font-size: 11px; color: var(--dim); }
+
+/* ===== 展开行：审计细节网格 ===== */
+.expGrid {
+  display: grid; grid-template-columns: 72px 1fr; gap: 6px 14px;
+  padding: 6px 8px; font-size: 12.5px; max-width: 860px;
+}
+.expK { color: var(--dim); white-space: nowrap; }
+.expV { color: var(--txt); font-family: var(--mono); word-break: break-all; }
+.detailFull { line-height: 1.7; }
+:deep(.ant-table-expanded-row > td) { background: var(--panel-2) !important; }
+:deep(.ant-table-row-expand-icon) {
+  background: transparent; border-color: var(--line); color: var(--txt);
 }
 
 /* ===== antd 主题适配(明暗双主题走令牌) ===== */

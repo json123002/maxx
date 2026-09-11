@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from .. import config
 from ..db import get_conn
-from ..oplog import log_op
+from ..oplog import client_ip, log_op, user_agent
 from ..security import (create_session, current_user, drop_session,
                         hash_password, verify_password)
 
@@ -33,7 +33,8 @@ class ChangePwdIn(BaseModel):
 
 @router.post("/login")
 def login(body: LoginIn, request: Request):
-    ip = request.client.host if request.client else ""
+    ip = client_ip(request)
+    ua = user_agent(request)
     row = get_conn().execute(
         "SELECT id, username, password_hash, role, enabled, hidden FROM users"
         " WHERE username = ?",
@@ -42,20 +43,20 @@ def login(body: LoginIn, request: Request):
     if not row or not verify_password(body.password, row["password_hash"]):
         # 登录失败也记录(暴力破解/输错密码是重要安全信号)
         log_op({"id": None, "username": body.username.strip()},
-               "login_fail", "用户名或密码错误", ip)
+               "login_fail", "用户名或密码错误", ip, ua)
         raise HTTPException(401, "用户名或密码错误")
     if not row["enabled"]:
-        log_op(dict(row), "login_fail", "账号已禁用", ip)
+        log_op(dict(row), "login_fail", "账号已禁用", ip, ua)
         raise HTTPException(403, "账号已被禁用，请联系管理员")
     token = create_session(row["id"])
-    log_op(dict(row), "login", "", ip)
+    log_op(dict(row), "login", "", ip, ua)
     return {"token": token, "user": _public_user(row)}
 
 
 @router.post("/logout")
-def logout(user=Depends(current_user)):
+def logout(request: Request, user=Depends(current_user)):
     drop_session(user["token"])
-    log_op(user, "logout")
+    log_op(user, "logout", "", client_ip(request), user_agent(request))
     return {"ok": True}
 
 

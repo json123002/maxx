@@ -12,12 +12,12 @@
 import re
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import config
 from ..db import get_conn
-from ..oplog import log_op
+from ..oplog import client_ip, log_op, user_agent
 from ..security import hash_password, require_admin
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -92,7 +92,8 @@ def list_users(admin=Depends(require_admin)):
 
 
 @router.post("/users", status_code=201)
-def create_user(body: CreateUserIn, admin=Depends(require_admin)):
+def create_user(body: CreateUserIn, request: Request,
+                admin=Depends(require_admin)):
     username = body.username.strip()
     if not _USERNAME_RE.match(username):
         raise HTTPException(400, "用户名仅限字母数字及 _ @ . -，长度 2-32")
@@ -112,12 +113,14 @@ def create_user(body: CreateUserIn, admin=Depends(require_admin)):
             )
     except Exception:
         raise HTTPException(409, "用户名已存在")
-    log_op(admin, "admin_create_user", "%s(%s)" % (username, body.role))
+    log_op(admin, "admin_create_user", "%s(%s)" % (username, body.role),
+           client_ip(request), user_agent(request))
     return {"id": cur.lastrowid, "username": username, "role": body.role}
 
 
 @router.patch("/users/{user_id}")
-def update_user(user_id: int, body: UpdateUserIn, admin=Depends(require_admin)):
+def update_user(user_id: int, body: UpdateUserIn, request: Request,
+                admin=Depends(require_admin)):
     target = _get_user(user_id)
     _check_not_root(target)                       # root 账号优先拦截
     if body.enabled is not None and user_id == admin["id"] and not body.enabled:
@@ -146,12 +149,14 @@ def update_user(user_id: int, body: UpdateUserIn, admin=Depends(require_admin)):
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
     changes = ",".join(f.replace("password_hash", "password")
                        for f in sets)
-    log_op(admin, "admin_update_user", "%s: %s" % (target["username"], changes))
+    log_op(admin, "admin_update_user", "%s: %s" % (target["username"], changes),
+           client_ip(request), user_agent(request))
     return {"ok": True}
 
 
 @router.delete("/users/{user_id}")
-def delete_user(user_id: int, admin=Depends(require_admin)):
+def delete_user(user_id: int, request: Request,
+                admin=Depends(require_admin)):
     if user_id == admin["id"]:
         raise HTTPException(400, "不能删除自己的账号")
     target = _get_user(user_id)
@@ -160,5 +165,6 @@ def delete_user(user_id: int, admin=Depends(require_admin)):
     conn = get_conn()
     with conn:
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    log_op(admin, "admin_delete_user", target["username"])
+    log_op(admin, "admin_delete_user", target["username"],
+           client_ip(request), user_agent(request))
     return {"ok": True}

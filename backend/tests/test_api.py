@@ -366,3 +366,36 @@ def test_op_logs(client):
     r = client.get("/api/logs", headers=hr,
                    params={"action": "login_fail"}).json()
     assert any(x["username"] == "admin" for x in r["rows"])
+
+
+def test_track_records_real_ip_and_ua(client, monkeypatch):
+    """反代场景：client.host 恒为回环地址，真实 IP 必须来自 X-Forwarded-For/X-Real-IP。"""
+    monkeypatch.setattr(  # 测试不触网：归属地解析失败须静默降级
+        "app.oplog.requests.post",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("offline")))
+    ha = login(client, "admin", "admin123")
+    client.post("/api/track",
+                headers={**ha, "X-Forwarded-For": "203.0.113.7, 10.0.0.1",
+                         "User-Agent": "pytest-ua/1.0"},
+                json={"action": "stock_view", "detail": "600001 测试钢铁"})
+    hr = login(client, config.ROOT_USERNAME, config.ROOT_PASSWORD)
+    r = client.get("/api/logs", headers=hr,
+                   params={"action": "stock_view", "kw": "600001"}).json()
+    row = r["rows"][0]
+    assert row["ip"] == "203.0.113.7"      # 取 XFF 链路第一跳,不是 127.0.0.1
+    assert row["ua"] == "pytest-ua/1.0"
+    assert row["region"] == "内网/本机"     # 保留地址(TEST-NET)不查外网
+
+
+def test_ip_region_format():
+    from app.oplog import _fmt_region, _is_public_ip
+    assert _fmt_region({"country": "中国", "regionName": "上海",
+                        "city": "上海", "isp": "电信"}) == "上海 · 电信"
+    assert _fmt_region({"country": "中国", "regionName": "浙江",
+                        "city": "杭州", "isp": "阿里云"}) == "浙江杭州 · 阿里云"
+    assert _fmt_region({"country": "美国", "regionName": "California",
+                        "city": "", "isp": ""}) == "美国 California"
+    assert _is_public_ip("8.8.8.8") is True
+    assert _is_public_ip("127.0.0.1") is False
+    assert _is_public_ip("192.168.1.1") is False
+    assert _is_public_ip("not-an-ip") is False

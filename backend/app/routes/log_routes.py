@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ..db import get_conn
-from ..oplog import log_op
+from ..oplog import client_ip, enrich_regions, log_op, user_agent
 from ..security import current_user, require_root
 
 router = APIRouter(tags=["logs"])
@@ -26,7 +26,7 @@ def track(body: TrackIn, request: Request, user=Depends(current_user)):
     if body.action not in TRACK_ACTIONS:
         raise HTTPException(400, "unknown action")
     log_op(user, body.action, body.detail,
-           request.client.host if request.client else "")
+           client_ip(request), user_agent(request))
     return {"ok": True}
 
 
@@ -54,10 +54,12 @@ def list_logs(username: str = Query(default="", max_length=32),
     total = conn.execute(
         "SELECT COUNT(*) AS c FROM op_logs" + w, params).fetchone()["c"]
     rows = conn.execute(
-        "SELECT id, ts, username, action, detail, ip FROM op_logs" + w +
+        "SELECT id, ts, user_id, username, action, detail, ip, ua"
+        " FROM op_logs" + w +
         " ORDER BY id DESC LIMIT ? OFFSET ?",
         (*params, size, (page - 1) * size)).fetchall()
     actions = [r["action"] for r in conn.execute(
         "SELECT DISTINCT action FROM op_logs ORDER BY action").fetchall()]
-    return {"rows": [dict(r) for r in rows], "total": total,
-            "actions": actions}
+    rows = [dict(r) for r in rows]
+    enrich_regions(rows)
+    return {"rows": rows, "total": total, "actions": actions}

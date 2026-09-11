@@ -107,13 +107,21 @@ def init_db() -> None:
             username   TEXT,
             action     TEXT NOT NULL,
             detail     TEXT,
-            ip         TEXT
+            ip         TEXT,
+            ua         TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_op_logs_ts ON op_logs(ts);
+
+        CREATE TABLE IF NOT EXISTS ip_regions (
+            ip         TEXT PRIMARY KEY,
+            region     TEXT NOT NULL,
+            fetched_at TEXT NOT NULL
+        );
         """
     )
     _migrate_quote_cols(conn)
     _migrate_users(conn)
+    _migrate_op_logs(conn)
     conn.commit()
 
 
@@ -134,6 +142,14 @@ def _migrate_users(conn) -> None:
     if "hidden" not in have:
         conn.execute(
             "ALTER TABLE users ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+
+
+def _migrate_op_logs(conn) -> None:
+    """老库补列:ua 浏览器指纹(辅助定位操作来源)。"""
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(op_logs)")}
+    if "ua" not in have:
+        conn.execute(
+            "ALTER TABLE op_logs ADD COLUMN ua TEXT NOT NULL DEFAULT ''")
 
 
 def seed_root(hash_password) -> None:

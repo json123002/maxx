@@ -58,7 +58,7 @@ jobs:
       - run: cd web && pnpm install --frozen-lockfile && pnpm test && pnpm build
 
       - name: Package release
-        run: tar czf release.tgz backend frontend
+        run: tar czf release.tgz backend frontend deploy/nginx.conf
 
       - name: Setup SSH key
         run: |
@@ -94,6 +94,16 @@ jobs:
             sleep 3
             curl -sf http://127.0.0.1:8000/api/health
             echo
+
+            echo "== sync nginx conf (rollback on invalid) =="
+            cp /etc/nginx/conf.d/turnover.conf /tmp/turnover.conf.bak
+            cp /opt/turnover-screener/deploy/nginx.conf /etc/nginx/conf.d/turnover.conf
+            if nginx -t; then
+              systemctl reload nginx
+            else
+              cp /tmp/turnover.conf.bak /etc/nginx/conf.d/turnover.conf
+              echo "WARN: nginx conf invalid, rolled back"
+            fi
           fi
 
           echo "== verify frontend =="

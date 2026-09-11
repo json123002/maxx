@@ -7,11 +7,11 @@
 import re
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ..db import get_conn
-from ..oplog import log_op
+from ..oplog import client_ip, log_op, user_agent
 from ..security import current_user
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
@@ -51,7 +51,7 @@ def watch_list(user=Depends(current_user)):
 
 
 @router.post("")
-def watch_add(body: AddIn, user=Depends(current_user)):
+def watch_add(request: Request, body: AddIn, user=Depends(current_user)):
     """添加自选：code 必须存在于行情快照（防脏数据）；重复添加幂等。"""
     code = body.code.strip()
     if not CODE_RE.match(code):
@@ -68,12 +68,13 @@ def watch_add(body: AddIn, user=Depends(current_user)):
             (user["id"], code, row["name"],
              datetime.now().isoformat(timespec="seconds")),
         )
-    log_op(user, "watchlist_add", "%s %s" % (code, row["name"]))
+    log_op(user, "watchlist_add", "%s %s" % (code, row["name"]),
+           client_ip(request), user_agent(request))
     return {"ok": True, "code": code, "name": row["name"]}
 
 
 @router.delete("/{code}")
-def watch_remove(code: str, user=Depends(current_user)):
+def watch_remove(code: str, request: Request, user=Depends(current_user)):
     """删除自选（不存在也返回 ok，幂等）。"""
     if not CODE_RE.match(code):
         raise HTTPException(400, "股票代码须为 6 位数字")
@@ -84,7 +85,8 @@ def watch_remove(code: str, user=Depends(current_user)):
         conn.execute("DELETE FROM watchlist WHERE user_id = ? AND code = ?",
                      (user["id"], code))
     log_op(user, "watchlist_del",
-           code + (" " + row["name"] if row and row["name"] else ""))
+           code + (" " + row["name"] if row and row["name"] else ""),
+           client_ip(request), user_agent(request))
     return {"ok": True}
 
 
