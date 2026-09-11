@@ -95,8 +95,9 @@ def build_filter_sql(args):
             where.append(col + " <= ?")
             params.append(hi)
     if args["industry"]:
-        where.append("industry = ?")
-        params.append(args["industry"])
+        marks = ",".join("?" * len(args["industry"]))
+        where.append("industry IN (" + marks + ")")
+        params += args["industry"]
     if args["kw"]:
         where.append("(code LIKE ? OR name LIKE ?)")
         params += ["%" + args["kw"] + "%"] * 2
@@ -133,7 +134,7 @@ def quote_list(
     markets: str | None = Query(default=None),
     tmin: float | None = None, tmax: float | None = None,
     cmin: float | None = None, cmax: float | None = None,
-    industry: str | None = Query(default=None, max_length=32),
+    industry: str | None = Query(default=None, max_length=200),
     kw: str | None = Query(default=None, max_length=32),
     no_st: bool = True, no_suspend: bool = True,
     metrics: str | None = Query(default=None, max_length=2000),
@@ -143,7 +144,8 @@ def quote_list(
     args = {
         "markets": _parse_markets(markets),
         "tmin": tmin, "tmax": tmax, "cmin": cmin, "cmax": cmax,
-        "industry": industry or None, "kw": (kw or "").strip() or None,
+        "industry": [x for x in (industry or "").split(",") if x][:10] or None,
+        "kw": (kw or "").strip() or None,
         "no_st": no_st, "no_suspend": no_suspend,
         "metrics": _parse_metrics(metrics),
     }

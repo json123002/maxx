@@ -15,12 +15,14 @@ maxx/
       fetcher.py      东方财富全市场快照抓取（分页重试、去重、忽略系统代理）
       scheduler.py    交易时段每 3 分钟抓数 + 每交易日 15:06 落历史
       routes/         auth（登录/改密）· admin（用户管理）· quote（行情查询）
-                        · watchlist（自选股）· log（操作日志，仅隐藏 root）
-    tests/            pytest（25 个用例，独立临时库，不触网）
+                        · watchlist（自选股）· radar（涨停雷达·一进二粗筛）
+                        · log（操作日志，仅隐藏 root）
+    tests/            pytest（26 个用例，独立临时库，不触网）
   web/                Vue3 前端工程（Vite + vue-router + ant-design-vue，包管理只用 pnpm）
     src/views/        LoginView(转盘登录) / HomeView(工作台) / ScreenerView(换手率筛选)
                         / WatchlistView(自选股) / StockView(个股详情+日K阶段标注)
-                        / HistoryView(历史榜单) / LogView(操作日志) / AdminView(用户管理)
+                        / HistoryView(历史榜单) / RadarView(涨停雷达·一进二)
+                        / LogView(操作日志) / AdminView(用户管理)
     src/layout/       MainLayout(左侧菜单+顶栏) / PwdModal(修改密码)
     src/screener/     筛选页组合式函数与组件（FilterPanel / ResultsPanel / metrics）
     src/stock/        K 线图与日K阶段识别（phases.js，含 node --test 回归）
@@ -81,6 +83,7 @@ python deploy/verify_frontend.py     # 只读核对线上前端版本及全部�
 | GET /api/quote/meta | 行业计数 + 情绪统计（按所选市场） |
 | GET /api/quote/stock/{code} | 个股详情（名称/行业/最新快照字段） |
 | GET /api/quote/history?date= · GET /api/quote/history/dates | 历史榜单回看（收盘落库数据） |
+| GET /api/radar/1to2 | 涨停雷达：昨日首板 × 今日竞价/量能/资金/空间六维粗筛 |
 | GET /api/health | 服务与最近抓取状态（公开） |
 | GET/POST/PATCH/DELETE /api/admin/users | 用户管理（仅管理员） |
 | GET/POST /api/watchlist · DELETE /api/watchlist/{code} · GET /api/watchlist/search | 自选股（登录用户） |

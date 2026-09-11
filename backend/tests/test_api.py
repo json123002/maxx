@@ -1,6 +1,7 @@
 """后端接口测试：独立临时库 + 关闭调度器（不触网）。"""
 import os
 import tempfile
+import json
 
 os.environ["TS_DB_PATH"] = os.path.join(tempfile.mkdtemp(prefix="ts-test-"), "t.db")
 os.environ["TS_ADMIN_PASSWORD"] = "admin123"
@@ -101,6 +102,9 @@ def test_filter_sql_swap_and_params():
     assert "f8 >= ?" in sql and "f3 <= ?" in sql
     assert "(f21 / 100000000.0) >= ?" in sql
     assert params[-2:] == [10.0, 100.0]          # min/max 已交换
+    # 行业多选:IN 参数化,单选/多选同一通路
+    sql, params = build_filter_sql(_args(industry=["半导体", "钢铁"]))
+    assert "industry IN (?,?)" in sql and params == ["半导体", "钢铁"]
 
 
 def test_quote_list_filters(client):
@@ -279,24 +283,33 @@ def test_watchlist_search_pinyin(client, monkeypatch):
     h = login(client, "admin", "admin123")
     client.post("/api/watchlist", headers=h, json={"code": "600001"})
 
+    payload = {"QuotationCodeTable": {"Data": [
+        {"Code": "300001", "Name": "测试科技", "PinYin": "CSKJ",
+         "Classify": "AStock"},
+        {"Code": "600001", "Name": "测试钢铁", "PinYin": "CSGT",
+         "Classify": "AStock"},
+        {"Code": "09999", "Name": "某港股", "PinYin": "MGG",
+         "Classify": "HK"},          # 非 A 股：过滤
+        {"Code": "999999", "Name": "不在快照", "PinYin": "BZK",
+         "Classify": "AStock"},       # 不在本地快照：过滤
+    ]}}
+
     class _Resp:
-        def json(self):
-            return {"QuotationCodeTable": {"Data": [
-                {"Code": "300001", "Name": "测试科技", "PinYin": "CSKJ",
-                 "Classify": "AStock"},
-                {"Code": "600001", "Name": "测试钢铁", "PinYin": "CSGT",
-                 "Classify": "AStock"},
-                {"Code": "09999", "Name": "某港股", "PinYin": "MGG",
-                 "Classify": "HK"},          # 非 A 股：过滤
-                {"Code": "999999", "Name": "不在快照", "PinYin": "BZK",
-                 "Classify": "AStock"},       # 不在本地快照：过滤
-            ]}}
+        text = json.dumps(payload, ensure_ascii=False)
 
     monkeypatch.setattr(wr._suggest, "get", lambda *a, **k: _Resp())
     rows = client.get("/api/watchlist/search?kw=cs", headers=h).json()["rows"]
     assert [r["f12"] for r in rows] == ["300001", "600001"]  # 保持联想相关度序
     assert rows[0]["pinyin"] == "CSKJ" and not rows[0]["added"]
     assert rows[1]["added"]                    # 已加自选的联想项带标记
+
+    # 部分东财节点返回 JSONP 壳(jQuery…({...})),剥壳后同样可解析
+    class _RespJsonp:
+        text = "jQuery3510_1(" + json.dumps(payload, ensure_ascii=False) + ")"
+
+    monkeypatch.setattr(wr._suggest, "get", lambda *a, **k: _RespJsonp())
+    rows = client.get("/api/watchlist/search?kw=cs", headers=h).json()["rows"]
+    assert [r["f12"] for r in rows] == ["300001", "600001"]
 
 
 def test_watchlist_search_pinyin_fallback(client, monkeypatch):
@@ -505,3 +518,59 @@ def test_history_endpoints(client):
     assert client.get("/api/quote/history?date=2026/09/10",
                       headers=h).status_code == 400
     assert client.get("/api/quote/history/dates").status_code == 401
+
+
+# ===== 涨停雷达（一进二粗筛） =====
+def _hist(date, code, name, f2, lu, ld=0, f6=None):
+    """直接插一行历史(基因/前高判定需要多日序列,replace_latest 造不出来)。"""
+    conn = db.get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO history"
+        " (trade_date, code, name, industry, market, f2, f6, limit_up, limit_down)"
+        " VALUES (?,?,?, '钢铁', '沪主板', ?,?,?,?)",
+        (date, code, name, f2, f6, lu, ld))
+    conn.commit()
+
+
+def test_radar_1to2(client):
+    h = login(client, "admin", "admin123")
+    # 基因序列:600005 在 09-08/09-09 两连板后 09-10/09-11 连续跌停 = A杀一次
+    _hist("2026-09-08", "600005", "测试基因", 7.5, 1, f6=8e7)
+    _hist("2026-09-09", "600005", "测试基因", 8.25, 1, f6=9e7)
+    _hist("2026-09-10", "600005", "测试基因", 7.43, 0, ld=1, f6=1.1e8)
+    # 前日(t1=09-11):候选票都不涨停(首板判定);300001 涨停(→ 次日算连板,排除)
+    _hist("2026-09-11", "600001", "测试钢铁", 9.5, 0, f6=4e8)
+    _hist("2026-09-11", "600005", "测试基因", 6.69, 0, ld=1, f6=1e8)
+    _hist("2026-09-11", "300001", "测试科技", 18.0, 1, f6=5e8)
+    # 昨日(t0=09-12)首板:600001/600005/300001(连板排除);ST 涨停被名称过滤
+    _hist("2026-09-12", "600001", "测试钢铁", 10.45, 1, f6=5e8)
+    _hist("2026-09-12", "600005", "测试基因", 7.36, 1, f6=1.2e8)
+    _hist("2026-09-12", "300001", "测试科技", 19.8, 1, f6=6e8)
+    _hist("2026-09-12", "000001", "ST测试", 5.25, 1, f6=2e8)
+    # 今日快照:600001 六维全好(高开4.3% 换手15 额比1.2 主力2亿 突破前高10.0);
+    # 600005 缺 f18 → 用昨收兜底,基因 A杀 → 放弃
+    db.replace_latest([
+        _row("600001", "测试钢铁", "钢铁", "沪主板", 11.5, 10.05,
+             f350=11.5, f351=9.4, f6=6e8, f8=15.0, f17=10.9, f18=10.45,
+             f62=2e8, f21=80e8),
+        _row("600005", "测试基因", "化工", "沪主板", 8.1, 10.03,
+             f350=8.1, f351=6.62, f6=1.5e8, f8=12.0, f17=8.9, f18=None,
+             f62=5e7, f21=30e8),
+        _row("300001", "测试科技", "半导体", "创业板", 21.0, 6.06,
+             f350=23.76, f351=15.84, f6=7e8, f8=20.0, f17=20.0, f18=19.8,
+             f62=1e8, f21=150e8),
+    ], "实时行情")
+
+    assert client.get("/api/radar/1to2").status_code == 401
+    d = client.get("/api/radar/1to2", headers=h).json()
+    assert d["date"] == "2026-09-12"
+    codes = [r["f12"] for r in d["rows"]]
+    assert codes == ["600001", "600005"]   # 连板 300001、ST 000001 均被排除
+    a, b = d["rows"]
+    assert a["verdict"] == "候选" and all(v == "good" for v in a["dims"].values())
+    assert a["open_pct"] == 4.31 and a["amt_ratio"] == 1.2
+    assert a["main_net_yi"] == 2.0 and a["dist_high"] == 15.0
+    assert b["verdict"] == "放弃" and b["dims"]["gene"] == "bad"
+    assert b["kill_a"] == 1 and b["max_streak"] == 2
+    assert d["stat"] == {"候选": 1, "观察": 0, "放弃": 1}
+    assert d["rules"]["open"].startswith("高开 3~6%")  # 阈值口径随响应下发

@@ -4,6 +4,7 @@
 需要登录。列表和搜索都关联 latest 快照返回实时行情字段（f2/f3/f8...），
 与前端筛选页渲染逻辑一致。
 """
+import json
 import re
 from datetime import datetime
 
@@ -21,7 +22,9 @@ CODE_RE = re.compile(r"^\d{6}$")
 LETTER_RE = re.compile(r"^[a-zA-Z]+$")
 
 # 东财搜索联想:拼音简写/全拼 → A股候选(token 为东财网页端公开值)。
-# 与 fetcher 同样 trust_env=False 忽略系统代理;任何失败都不影响本地搜索。
+# 与 fetcher 同样 trust_env=False 忽略系统代理(代理出口会被东财 CDN 分配到
+# 行为不同的节点);任何失败都不影响本地搜索。
+# 注意:部分节点返回 JSONP 包裹(jQuery…({...})),解析前先剥壳。
 _suggest = requests.Session()
 _suggest.trust_env = False
 SUGGEST_URL = "https://searchapi.eastmoney.com/api/suggest/get"
@@ -34,7 +37,10 @@ def _suggest_astock(kw: str, limit: int = 20) -> list[dict]:
         r = _suggest.get(SUGGEST_URL, params={
             "input": kw, "type": 14, "token": SUGGEST_TOKEN, "count": limit,
         }, timeout=2)
-        data = (r.json().get("QuotationCodeTable") or {}).get("Data") or []
+        txt = r.text.strip()
+        if not txt.startswith("{"):                 # JSONP 壳:jQuery…({...})
+            txt = txt[txt.find("(") + 1: txt.rfind(")")]
+        data = (json.loads(txt).get("QuotationCodeTable") or {}).get("Data") or []
         return [
             {"code": d.get("Code", ""), "name": d.get("Name", ""),
              "pinyin": d.get("PinYin", "")}

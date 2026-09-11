@@ -35,7 +35,7 @@ export const MKT_DEFS = [
 export function useScreener() {
   // ===== 筛选条件 =====
   const tMin = ref("8"), tMax = ref(""), cMin = ref("-8"), cMax = ref("-5");
-  const kw = ref(""), industry = ref("");
+  const kw = ref(""), industry = ref([]);  // 行业多选:[] = 全部行业
   const mkts = ref([true, true, true, true, false]); // 对应 MKT_DEFS 顺序
   const noST = ref(true), noSuspend = ref(true);
   const metrics = ref([]); // [{k, min, max}] min/max 为输入框原始字符串,空 = 不设界
@@ -67,7 +67,7 @@ export function useScreener() {
     const parts = [];
     if (!isNaN(t1) || !isNaN(t2)) parts.push("换手 " + (isNaN(t1) ? "" : t1) + "~" + (isNaN(t2) ? "∞" : t2) + "%");
     if (!isNaN(c1) || !isNaN(c2)) parts.push("涨跌 " + (isNaN(c1) ? "" : c1) + "~" + (isNaN(c2) ? "∞" : c2) + "%");
-    if (industry.value) parts.push(industry.value);
+    if (industry.value.length) parts.push(industry.value.join("、"));
     const mPart = metricsSummaryPart(metrics.value);
     if (mPart) parts.push(mPart);
     parts.push(mkts.value.filter(Boolean).length + " 市场");
@@ -121,7 +121,7 @@ export function useScreener() {
     set(tMin, get("tmin")); set(tMax, get("tmax"));
     set(cMin, get("cmin")); set(cMax, get("cmax"));
     const ind = get("industry");
-    if (ind) presetIndustry = String(ind);
+    if (ind) presetIndustry = String(ind).split(",").filter(Boolean);
     return get("auto") === "1";
   }
 
@@ -164,7 +164,7 @@ export function useScreener() {
     noST.value = !!f.noST;
     noSuspend.value = !!f.noSuspend;
     metrics.value = normalizeMetricsState(f.metrics);
-    industry.value = ""; // 行业下拉依赖查询结果,换策略时清空避免误导
+    industry.value = []; // 换策略时清空行业,避免误导
     saveFilters();
     refilter();
     message.success("已加载策略「" + name + "」");
@@ -184,7 +184,7 @@ export function useScreener() {
     if (!isNaN(t2)) p.set("tmax", t2);
     if (!isNaN(c1)) p.set("cmin", c1);
     if (!isNaN(c2)) p.set("cmax", c2);
-    if (industry.value) p.set("industry", industry.value);
+    if (industry.value.length) p.set("industry", industry.value.join(","));
     const k = kw.value.trim();
     if (k) p.set("kw", k);
     p.set("no_st", noST.value ? "1" : "0");
@@ -252,16 +252,31 @@ export function useScreener() {
         : `· 指数量能：缺失（按中性计）`);
   }
 
-  // ===== 行业下拉填充(门户页跳转带来的预设行业优先)=====
+  // ===== 行业下拉填充(全市场口径,尽量全;门户页跳转带来的预设行业优先)=====
   function fillIndustry(inds) {
     industries.value = inds;
     industryReady.value = true;
     if (presetIndustry) {
-      industry.value = presetIndustry;
+      industry.value = presetIndustry.filter((n) => inds.some((x) => x.name === n));
       presetIndustry = null;
-    } else if (industry.value && !inds.some((x) => x.name === industry.value)) {
-      industry.value = ""; // 旧 select 赋不存在的值会落空,这里同步清掉
+    } else {
+      industry.value = industry.value.filter((n) => inds.some((x) => x.name === n));
     }
+  }
+
+  // 进页面即拉行业列表(全部市场,不受市场勾选影响,保证行业板块最全)
+  async function loadMeta() {
+    try {
+      const mqs = "markets=" + encodeURIComponent(MKT_DEFS.map((c) => c.value).join(","));
+      const r = await apiFetch("/api/quote/meta?" + mqs);
+      if (r.ok) fillIndustry((await r.json()).industries || []);
+    } catch (e) {}
+  }
+  loadMeta();
+
+  // 兜底:进入页加载失败时,首次查询顺带填一次(此时为所选市场口径)
+  function fillIndustryIfNeeded(inds) {
+    if (!industryReady.value) fillIndustry(inds);
   }
 
   // ===== 一键查询:后端已定时抓全市场快照入库,前端一次 API 调用出结果 =====
@@ -311,7 +326,7 @@ export function useScreener() {
         ? "完成 · " + lastTotal.value + " 只符合条件 · 耗时 " + secs + "s" + (list.stale ? " · 数据为最近一次成功快照" : "")
         : "后端正在初始化数据，请稍后重试";
 
-      fillIndustry(meta.industries || []);
+      fillIndustryIfNeeded(meta.industries || []);
       updateSentiBadge(meta.stats, null);                                        // 先出价格统计的温度
       fetchIndexKline()
         .then((i) => updateSentiBadge(lastMeta.value && lastMeta.value.stats, i)) // 再补量能分量
@@ -344,7 +359,7 @@ export function useScreener() {
     clearTimeout(kwTimer);
     kwTimer = setTimeout(refilter, 200);
   }
-  // 市场勾选变化影响数据范围,立即重查
+  // 市场勾选变化影响数据范围,立即重查(行业列表是全市场口径,无需刷新)
   function onMktChange() {
     if (hasRun.value) run();
   }
@@ -380,7 +395,7 @@ export function useScreener() {
 
   // ===== 行业标签/行业卡片点击 → 按行业筛选并切回个股页 =====
   function selectIndustry(name) {
-    industry.value = name === "未分类" ? "" : name;
+    industry.value = name === "未分类" ? [] : [name];
     tab.value = "stock";
     refilter();
     if (IS_MOBILE()) window.scrollTo({ top: 0, behavior: "smooth" });
