@@ -17,6 +17,10 @@ concurrency:
   group: deploy-prod       # 防止两个人同时点部署
   cancel-in-progress: false
 
+# 部署只用 SSH 密钥出站到服务器，GITHUB_TOKEN 收紧为只读
+permissions:
+  contents: read
+
 env:
   HOST: 47.94.235.93
   USER: root

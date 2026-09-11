@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# 最小权限：CI 只读代码，不写仓库（OpenSSF 建议的 GITHUB_TOKEN 收紧）
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest

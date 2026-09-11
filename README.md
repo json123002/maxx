@@ -30,6 +30,7 @@ maxx/
     nginx.conf        站点配置（/api 反代 127.0.0.1:8000，gzip）
     turnover-api.service  systemd 单元
     deploy.py         一键部署脚本（本机执行，先构建前端再跑）
+    publish_frontend.py / verify_frontend.py   仅发布前端 / 只读核对线上前端（应急通道）
     check_server.py   服务器巡检（服务/内存/库行数/日志，需 TS_PASSWORD）
   .github/workflows/  CI：后端 pytest + 前端 pnpm test & build
 ```
@@ -62,7 +63,10 @@ pnpm build                          # 构建到 frontend/(uvicorn 直接托管�
 应急通道（本机执行，需 `TS_PASSWORD` 环境变量）：
 
 ```bash
-python deploy/deploy.py
+python deploy/deploy.py              # 全量部署（后端 + 前端 + nginx 配置）
+python deploy/publish_frontend.py    # 仅发布前端：本地先 pnpm build，脚本备份线上首页、
+                                     # 校验资源后原子切换；公网验证失败自动回退
+python deploy/verify_frontend.py     # 只读核对线上前端版本及全部资源（回退无法确认时用）
 ```
 
 首次部署后请立即登录并在右上角「修改密码」改掉默认口令。
@@ -75,6 +79,7 @@ python deploy/deploy.py
 | POST /api/auth/logout · GET /api/auth/me · POST /api/auth/change-password | 会话与改密 |
 | GET /api/quote/list | 筛选列表（markets/tmin/tmax/cmin/cmax/industry/kw/no_st/no_suspend/metrics/limit） |
 | GET /api/quote/meta | 行业计数 + 情绪统计（按所选市场） |
+| GET /api/quote/stock/{code} | 个股详情（名称/行业/最新快照字段） |
 | GET /api/quote/history?date= · GET /api/quote/history/dates | 历史榜单回看（收盘落库数据） |
 | GET /api/health | 服务与最近抓取状态（公开） |
 | GET/POST/PATCH/DELETE /api/admin/users | 用户管理（仅管理员） |
@@ -102,4 +107,8 @@ python deploy/deploy.py
 
 规则回归测试：`node --test web/src/stock/phases.test.js`。
 回归样本包含腾讯前复权海鸥股份日K快照（截至2026-09-11），验证8月13～26日短平台、8月27日突破及逐日确认时间稳定性。面板优先展示当前可见阶段，历史阶段需选择定位；无可见阶段时明确提示。规则属于可解释的启发式识别，未经过收益或胜率校准。
-仅更新前端时，先构建，再执行 `python deploy/publish_frontend.py`。该脚本通过本地遮蔽输入框获取SSH密码（也支持TS_PASSWORD），备份线上首页、校验资源后原子切换首页；公网验证失败则尝试恢复原首页，不改动数据库和后端服务。若网络中断导致回退无法确认，可执行 `python deploy/verify_frontend.py` 只读核对线上版本及全部资源；必要时通过脚本输出的备份恢复。
+
+## 协作与安全
+
+- 分支、提交、PR、数据库变更规范见 [CONTRIBUTING.md](CONTRIBUTING.md)
+- 漏洞报告与密钥红线见 [SECURITY.md](SECURITY.md)
