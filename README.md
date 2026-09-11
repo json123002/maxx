@@ -36,6 +36,8 @@ maxx/
 
 ## 本地开发
 
+环境要求：Python 3.11+ · Node.js ≥ 22.13 · pnpm（`npm i -g pnpm`）
+
 ```bash
 cd backend
 pip install -r requirements.txt
