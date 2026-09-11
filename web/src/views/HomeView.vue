@@ -93,8 +93,11 @@
 
     <!-- ===== 免责声明 ===== -->
     <footer class="disclaimer">
-      数据来自东方财富，页面内容仅为客观数据的整理与展示，不构成任何推荐或投资建议。
-      市场有风险，决策需独立。
+      <span>
+        数据来自东方财富，页面内容仅为客观数据的整理与展示，不构成任何推荐或投资建议。
+        市场有风险，决策需独立。
+      </span>
+      <span class="ver">v{{ version }}</span>
     </footer>
   </div>
 </template>
@@ -107,6 +110,7 @@ import {
 import { api } from "../api/client";
 import { authState } from "../stores/auth";
 import { fmtN, cls, quoteUrl } from "../utils/format";
+import { version } from "../../package.json";
 
 // 功能入口:与登录页转盘同一套选题,后续功能上线时补上 path 即可
 const features = [
@@ -362,6 +366,11 @@ onUnmounted(() => clearInterval(timer));
 .disclaimer {
   margin-top: 44px; padding-top: 14px; border-top: 1px solid var(--line);
   color: var(--dim); font-size: 11.5px; line-height: 1.8;
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 16px; flex-wrap: wrap;
+}
+.disclaimer .ver {
+  flex: none; font-family: var(--mono); font-size: 11px; opacity: 0.75;
 }
 
 /* ===== 响应式 ===== */
