@@ -1,9 +1,11 @@
 /* 日K历史阶段识别：确认日只使用截至当日数据，区间终点随新K线延伸。
- * 起点是复盘定位，不是当日信号；规则是启发式定义，不代表胜率。 */
+ * 起点是复盘定位，不是当日信号；规则是启发式定义，不代表胜率。
+ * 五类：横盘整理 / 横盘后上涨(平台突破) / 触底反弹 / 趋势上涨 / 趋势下跌。 */
 export const PHASE_RULES = {
   flatDays: 8, flatRange: 0.12, flatDrift: 0.04, maxEfficiency: 0.55,
   breakoutDays: 10, breakoutPct: 0.015, trendDays: 40,
   bottomLookback: 20, drawdown: 0.15, reboundDays: 20, reboundPct: 0.08,
+  trendWin: 15, trendMove: 0.12, trendEfficiency: 0.5, trendPullback: 0.08, trendMaxDays: 60,
 };
 const valid = b => b && [b.open, b.close, b.high, b.low].every(Number.isFinite)
   && b.low > 0 && b.low <= Math.min(b.open, b.close)
@@ -36,6 +38,15 @@ export function detectPhases(bars) {
     const efficiency = travel ? Math.abs(bars[e].close - bars[s].close) / travel : 0;
     return Math.abs(last / first - 1) <= r.flatDrift && efficiency <= r.maxEfficiency;
   }
+  function maAt(i, p) {
+    if (i - p + 1 < 0) return null;
+    let sum = 0;
+    for (let j = i - p + 1; j <= i; j++) {
+      if (!valid(bars[j])) return null;
+      sum += bars[j].close;
+    }
+    return sum / p;
+  }
   function atrAt(i) {
     const values = [];
     for (let j = Math.max(0, i - 13); j <= i; j++) {
@@ -54,7 +65,8 @@ export function detectPhases(bars) {
   function add(s, e, type, confirmedAt, status, extra = {}) {
     const b = bounds(s, e);
     if (!b) return;
-    out.push({ s, e, type, label: { flat: '横盘整理', rise: '横盘后上涨', bounce: '触底反弹' }[type],
+    out.push({ s, e, type, label: { flat: '横盘整理', rise: '横盘后上涨', bounce: '触底反弹',
+      trendUp: '趋势上涨', trendDown: '趋势下跌' }[type],
       ...b, confirmedAt, status, days: e - s + 1,
       startDate: bars[s].date, endDate: bars[e].date,
       confirmedDate: confirmedAt == null ? null : bars[confirmedAt].date,
@@ -143,6 +155,55 @@ export function detectPhases(bars) {
     } else if (!invalidated && e === n - 1 && e < limit) {
       add(i, e, 'bounce', null, 'forming', { referencePrice: low, reboundPct: (bars[e].close / low - 1) * 100 });
     }
+  }
+  // 趋势段:15 日窗口净位移 ≥12% + 路径效率 ≥0.5 + 均线多/空头排列。
+  // 确认只依赖当日及以前;已被同向趋势覆盖的日子不再重复确认,保证逐日回放确认时间不变。
+  function trendDirAt(i) {
+    const s = i - r.trendWin + 1;
+    const part = bars.slice(s, i + 1);
+    if (!part.every(valid)) return 0;
+    const ma5 = maAt(i, 5), ma10 = maAt(i, 10), ma20 = maAt(i, 20);
+    if (ma5 == null || ma10 == null || ma20 == null) return 0;
+    const first = bars[s].close, last = bars[i].close;
+    const move = last / first - 1;
+    if (Math.abs(move) < r.trendMove) return 0;
+    let travel = 0;
+    for (let j = s + 1; j <= i; j++) travel += Math.abs(bars[j].close - bars[j - 1].close);
+    if ((travel ? Math.abs(last - first) / travel : 0) < r.trendEfficiency) return 0;
+    if (move > 0 && last > ma20 && ma5 > ma10 && ma10 > ma20) return 1;
+    if (move < 0 && last < ma20 && ma5 < ma10 && ma10 < ma20) return -1;
+    return 0;
+  }
+  const covered = []; // 已确认趋势区间 [dir, s, e]
+  for (let i = r.trendWin - 1; i < n; i++) {
+    const dir = trendDirAt(i);
+    if (!dir || covered.some(([d, s, e]) => d === dir && i >= s && i <= e)) continue;
+    const s = i - r.trendWin + 1;
+    let e = i, extreme = bars[i].close, stopped = false, endReason = '';
+    const limit = i + r.trendMaxDays;
+    for (let j = i + 1; j <= Math.min(n - 1, limit); j++) {
+      if (!valid(bars[j])) { stopped = true; endReason = '数据中断'; break; }
+      const m20 = maAt(j, 20);
+      if (m20 == null) break;
+      e = j;
+      if (dir > 0) {
+        extreme = Math.max(extreme, bars[j].close);
+        if (bars[j].close < m20 && bars[j].close / extreme - 1 <= -r.trendPullback) {
+          stopped = true; endReason = '收盘跌破 20 日线且自高点回撤 ≥8%'; break;
+        }
+      } else {
+        extreme = Math.min(extreme, bars[j].close);
+        if (bars[j].close > m20 && bars[j].close / extreme - 1 >= r.trendPullback) {
+          stopped = true; endReason = '收盘站上 20 日线且自低点反弹 ≥8%'; break;
+        }
+      }
+    }
+    add(s, e, dir > 0 ? 'trendUp' : 'trendDown', i,
+      stopped || e >= limit ? 'completed' : 'ongoing', {
+        confirmationMethod: '15 日净位移 ≥12% · 路径效率 ≥0.5 · 均线' + (dir > 0 ? '多头' : '空头') + '排列',
+        endReason: endReason || (e >= limit ? '观察期结束' : '尚未触发结束条件'),
+      });
+    covered.push([dir, s, e]);
   }
   return out.sort((a, b) => a.s - b.s || a.e - b.e);
 }

@@ -4,7 +4,7 @@
    - 交互:滚轮缩放(光标锚定) · 左右拖拽平移 · 双击复位 · 区间快捷切换
    - 十字光标:桌面鼠标移动显示 OHLC/涨跌幅/换手/量
    - 主题变量取色,明暗切换/窗口缩放自动重绘 */
-import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch, watchEffect } from "vue";
 import { detectPhases, selectVisiblePhase } from "./phases.js";
 import { themeMode } from "../utils/theme";
 
@@ -27,7 +27,19 @@ const RANGES = [
 /* ---------- 周期阶段标注 ---------- */
 const showPhases = ref(true);
 const phases = computed(() => detectPhases(props.bars));
-const phaseTypes = reactive({ flat: true, rise: true, bounce: true });
+// 阶段类型筛选:默认不勾选(图面更干净),需要时自行勾选或一键全选
+const phaseTypes = reactive({ flat: false, rise: false, bounce: false, trendUp: false, trendDown: false });
+const allTypesOn = computed(() => Object.values(phaseTypes).every(Boolean));
+const someTypesOn = computed(() => Object.values(phaseTypes).some(Boolean));
+const allChk = ref(null);
+// 部分勾选时全选框显示半选态(indeterminate 是 DOM 属性,非 attribute)
+watchEffect(() => {
+  if (allChk.value) allChk.value.indeterminate = someTypesOn.value && !allTypesOn.value;
+});
+function toggleAllTypes() {
+  const target = !allTypesOn.value;
+  for (const k of Object.keys(phaseTypes)) phaseTypes[k] = target;
+}
 const selectedPhase = shallowRef(null);
 const statusText = { forming: '正在形成 · 待确认', ongoing: '已确认 · 延续中', completed: '已确认 · 区间结束' };
 const enabledPhases = computed(() => phases.value.filter(p => phaseTypes[p.type]).sort((a, b) => b.e - a.e || b.s - a.s));
@@ -44,9 +56,11 @@ function focusPhase(event) {
 }
 const signed = v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
 const PHASE_STYLE = {
-  flat:   { fill: "rgba(120,144,180,0.10)", border: "rgba(120,144,180,0.55)", tag: "rgba(120,144,180,0.9)" },
-  rise:   { fill: "rgba(235,77,75,0.08)",  border: "rgba(235,77,75,0.5)",  tag: "rgba(235,77,75,0.9)" },
-  bounce: { fill: "rgba(32,178,130,0.08)", border: "rgba(32,178,130,0.5)", tag: "rgba(32,178,130,0.9)" },
+  flat:      { fill: "rgba(120,144,180,0.10)", border: "rgba(120,144,180,0.55)", tag: "rgba(120,144,180,0.9)" },
+  rise:      { fill: "rgba(235,77,75,0.08)",  border: "rgba(235,77,75,0.5)",  tag: "rgba(235,77,75,0.9)" },
+  bounce:    { fill: "rgba(32,178,130,0.08)", border: "rgba(32,178,130,0.5)", tag: "rgba(32,178,130,0.9)" },
+  trendUp:   { fill: "rgba(245,166,35,0.08)", border: "rgba(245,166,35,0.5)", tag: "rgba(245,166,35,0.9)" },
+  trendDown: { fill: "rgba(74,168,255,0.08)", border: "rgba(74,168,255,0.5)", tag: "rgba(74,168,255,0.9)" },
 };
 
 function setRange(n) {
@@ -364,7 +378,11 @@ watch(phaseTypes, draw);
   <div v-if="showPhases" class="phasePanel">
     <div class="phaseScope">当前视窗识别 {{ visiblePhases.length }} 个阶段 · 历史共 {{ enabledPhases.length }} 个 · 框选为规则识别，非买卖信号</div>
     <div class="phaseFilters">
-      <label v-for="(name, type) in { flat: '横盘整理', rise: '横盘后上涨', bounce: '触底反弹' }" :key="type" :class="type">
+      <label class="all">
+        <input type="checkbox" ref="allChk" :checked="allTypesOn" @change="toggleAllTypes">全选
+      </label>
+      <span class="fSep"></span>
+      <label v-for="(name, type) in { flat: '横盘整理', rise: '横盘后上涨', bounce: '触底反弹', trendUp: '趋势上涨', trendDown: '趋势下跌' }" :key="type" :class="type">
         <input type="checkbox" v-model="phaseTypes[type]">{{ name }}
       </label>
       <select v-if="enabledPhases.length" aria-label="定位历史阶段" :value="enabledPhases.indexOf(activePhase)" @change="focusPhase">
@@ -381,6 +399,7 @@ watch(phaseTypes, draw);
       <div v-if="activePhase.type === 'rise'">前置横盘 {{ activePhase.baseStartDate }} ~ {{ activePhase.baseEndDate }} · 箱顶 {{ fmtP(activePhase.referencePrice) }}</div>
       <div v-if="activePhase.type === 'flat'">平台振幅 {{ activePhase.rangePct.toFixed(1) }}% · {{ activePhase.days < 20 ? '短周期平台（8～19日）' : '中期横盘（20日及以上）' }}</div>
       <div v-if="activePhase.confirmationMethod">确认依据：{{ activePhase.confirmationMethod }}</div>
+      <div v-if="activePhase.type.startsWith('trend')">均线跟踪延伸 · {{ activePhase.endReason }}</div>
       <div v-if="activePhase.type === 'rise'">突破阈值 {{ fmtP(activePhase.threshold) }} · 确认后最高收盘涨幅 {{ signed(activePhase.maxGainPct) }} · 回撤阈值 {{ activePhase.pullbackPct.toFixed(1) }}% · {{ activePhase.endReason }}</div>
       <div v-if="activePhase.type === 'bounce'">底部低价 {{ fmtP(activePhase.referencePrice) }} · 低点至区间末收盘反弹 {{ signed(activePhase.reboundPct) }}</div>
     </template>
@@ -389,6 +408,7 @@ watch(phaseTypes, draw);
       <p>短平台至少8日，中期横盘至少20日；整体振幅≤12%，首尾分组均价偏移≤4%，净位移 / 逐日收盘位移总和≤0.55，以排除单边爬升。突破先越过箱顶加较大者（1.5%箱顶、0.5倍14日平均真实波幅），再满足收盘突破3%、量达前5日均量1.5倍、连续两日站稳中的一项。</p>
       <p>突破后最多跟踪40日；跌回箱顶判为失效，或最高收盘回撤达到确认日冻结阈值（2倍平均真实波幅 / 收盘价，限制8%～15%）结束。反弹需创20日低点、较前20日最高价回落≥15%，至少等待2日，20日内收盘反弹≥8%；创新低或收盘回撤8%结束。终止当日包含在框内。</p>
       <p>箭头与竖虚线标记确认日；起点仅用于历史复盘，待确认区间可能消失。已确认区间可继续延伸，日内未收盘数据仍会变化。不复权数据可能受除权影响。</p>
+      <p>趋势上涨 / 下跌为均线跟踪段：15 日窗口收盘净位移≥12%、路径效率（净位移 / 逐日位移总和）≥0.5，且收盘与 MA5/10/20 呈多 / 空头排列时确认；之后沿 20 日线延伸，反向穿越 20 日线且自极值回撤 / 反弹 8% 结束，最长观察 60 日。趋势段可能与平台突破区间重叠，二者观察角度不同。</p>
     </details>
   </div>
   </div>
@@ -400,7 +420,10 @@ watch(phaseTypes, draw);
 .phasePanel { flex: none; max-height: 185px; overflow: auto; border-top: 1px solid var(--line); padding: 9px 12px; font-size: 11px; line-height: 1.8; color: var(--dim); }
 .phaseFilters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 4px; }
 .phaseFilters label { display: flex; align-items: center; gap: 3px; cursor: pointer; }
+.phaseFilters label.all { color: var(--txt); font-weight: 600; }
+.phaseFilters .fSep { width: 1px; height: 12px; background: var(--line-strong); }
 .phaseFilters .flat { color: #7890b4; } .phaseFilters .rise { color: #eb4d4b; } .phaseFilters .bounce { color: #20b282; }
+.phaseFilters .trendUp { color: #f5a623; } .phaseFilters .trendDown { color: #4aa8ff; }
 .phaseFilters select { max-width: 100%; background: var(--panel); color: var(--txt); border: 1px solid var(--line); border-radius: 4px; font: inherit; }
 .phaseSummary { display: flex; gap: 12px; color: var(--txt); }
 .phaseScope { font-size: 11px; margin-bottom: 4px; }

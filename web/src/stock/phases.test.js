@@ -98,3 +98,39 @@ test('逐日回放：已确认信号不因未来K线变更确认时间', () => {
     }
   }
 });
+
+test('趋势上涨:15日净位移+路径效率+均线多头排列,确认于第20根起', () => {
+  const up = Array.from({ length: 70 }, (_, i) => bar(10 * 1.01 ** i, i));
+  const p = detectPhases(up).find(p => p.type === 'trendUp');
+  assert.ok(p); assert.equal(p.confirmedAt, 19); // MA20 就绪的第一天
+  assert.equal(p.s, 5); assert.equal(p.status, 'ongoing'); assert.equal(p.e, 69);
+  const down = Array.from({ length: 70 }, (_, i) => bar(20 * 0.99 ** i, i));
+  const d = detectPhases(down).find(p => p.type === 'trendDown');
+  assert.ok(d); assert.equal(d.confirmedAt, 19); assert.equal(d.label, '趋势下跌');
+});
+
+test('横盘震荡不构成趋势;趋势结束于跌破20日线且回撤8%', () => {
+  // ±2% 往返:效率极低,不识别趋势
+  const zig = Array.from({ length: 60 }, (_, i) => bar(10 * (i % 2 ? 1.02 : 1), i));
+  assert.equal(detectPhases(zig).filter(p => p.type.startsWith('trend')).length, 0);
+  // 上升 40 日后急跌:确认趋势,跌破 MA20 且自峰值回撤 ≥8% 结束
+  const bars = [...Array.from({ length: 40 }, (_, i) => bar(10 * 1.01 ** i, i)),
+    bar(13.6, 40), bar(12.4, 41), bar(12.2, 42)];
+  const p = detectPhases(bars).find(p => p.type === 'trendUp');
+  assert.ok(p); assert.equal(p.status, 'completed');
+  assert.equal(p.endReason, '收盘跌破 20 日线且自高点回撤 ≥8%');
+});
+
+test('趋势类型逐日回放:确认时间不因未来K线改变', () => {
+  const bars = [...Array.from({ length: 45 }, (_, i) => bar(10 * 1.012 ** i, i)),
+    ...Array.from({ length: 30 }, (_, i) => bar(16.8 - i * 0.25, i + 45))];
+  const full = detectPhases(bars);
+  assert.ok(full.some(p => p.type === 'trendUp'));
+  for (let n = 1; n <= bars.length; n++) {
+    for (const p of detectPhases(bars.slice(0, n)).filter(p => p.type.startsWith('trend') && p.confirmedAt != null)) {
+      const later = full.find(q => q.s === p.s && q.type === p.type);
+      assert.ok(later, p.type + ' ' + p.startDate + ' 不应消失');
+      assert.equal(later.confirmedAt, p.confirmedAt);
+    }
+  }
+});
