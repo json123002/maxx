@@ -313,7 +313,7 @@ onMounted(loadUsers);
 
 <style scoped>
 /* ===== 布局:无卡片盒,编辑排印风(与新版工作台一致) ===== */
-.adminWrap { max-width: 880px; margin: 0 auto; padding: 12px 0 48px; }
+.adminWrap { padding: 12px 0 48px; }
 .blk { margin-top: 30px; }
 .blk:first-child { margin-top: 10px; }
 .secHead {

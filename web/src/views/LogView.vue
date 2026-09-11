@@ -160,7 +160,7 @@ onMounted(load);
 
 <style scoped>
 /* ===== 与 AdminView 一致的排印风 ===== */
-.logWrap { max-width: 1080px; margin: 0 auto; padding: 12px 0 48px; }
+.logWrap { padding: 12px 0 48px; }
 .blk { margin-top: 10px; }
 .secHead {
   display: flex; align-items: baseline; gap: 12px;
