@@ -25,11 +25,14 @@ env:
 
 jobs:
   # 部署前先过一遍测试：没测过的代码不上生产
+  # 仅仓库所有者可触发部署（协作者点 Run workflow 会被跳过）；
+  # 将来要授权他人部署，把下面的用户名换成对方 GitHub 账号即可
   verify:
+    if: github.triggering_actor == 'json123002'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -41,13 +44,13 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build frontend
         uses: pnpm/action-setup@v4
         with:
           version: 11.7.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
