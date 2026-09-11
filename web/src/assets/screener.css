@@ -496,3 +496,7 @@ button.ghost:hover { color: var(--txt); border-color: var(--line-strong); }
 }
 .lmBadge.up { color: #fff; background: var(--up); }
 .lmBadge.down { color: #fff; background: var(--down); }
+
+/* ===== 布局偏好:窄栏模式(默认铺开) =====
+   body.narrow 时数据页容器收窄居中;页面容器消费 var(--page-max) */
+body.narrow { --page-max: 1180px; }

@@ -265,7 +265,7 @@ onUnmounted(() => clearInterval(timer));
 </script>
 
 <style scoped>
-.home { width: 100%; padding: 12px 0 8px; }
+.home { width: 100%; max-width: var(--page-max, none); margin: 0 auto; padding: 12px 0 8px; }
 
 /* ===== 刊头 ===== */
 .mast {
