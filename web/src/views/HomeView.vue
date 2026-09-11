@@ -140,8 +140,8 @@ import { version } from "../../package.json";
 const features = [
   { title: "换手率筛选", icon: FundViewOutlined, path: "/screener",
     desc: "量价先行,按换手率/涨跌幅/行业/自定义指标一键锁定活跃强势股。" },
-  { title: "涨停雷达", icon: FireOutlined, path: "",
-    desc: "捕捉涨停基因,站上市场最强风口。" },
+  { title: "涨停雷达", icon: FireOutlined, path: "/radar",
+    desc: "一进二打板候选:昨日首板 × 今日竞价/量能/资金六维粗筛。" },
   { title: "龙头战法", icon: CrownOutlined, path: "",
     desc: "主线合力所向,骑上龙头不放手。" },
   { title: "主力护航", icon: FundOutlined, path: "",

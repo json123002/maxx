@@ -15,7 +15,7 @@ from . import config
 _local = threading.local()
 
 QUOTE_COLS = ["f2", "f3", "f6", "f7", "f8", "f9", "f10", "f18",
-              "f20", "f21", "f23", "f24", "f25", "f350", "f351"]
+              "f20", "f21", "f23", "f24", "f25", "f350", "f351", "f17", "f62"]
 LIMIT_COLS = ["limit_up", "limit_down"]
 ALL_COLS = ["code", "name", "industry", "market"] + QUOTE_COLS + LIMIT_COLS
 
@@ -44,7 +44,7 @@ def init_db() -> None:
             market   TEXT,
             f2 REAL, f3 REAL, f6 REAL, f7 REAL, f8 REAL, f9 REAL,
             f10 REAL, f18 REAL, f20 REAL, f21 REAL, f23 REAL, f24 REAL,
-            f25 REAL, f350 REAL, f351 REAL,
+            f25 REAL, f350 REAL, f351 REAL, f17 REAL, f62 REAL,
             limit_up INTEGER, limit_down INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_latest_industry ON latest(industry);
@@ -68,7 +68,7 @@ def init_db() -> None:
             market     TEXT,
             f2 REAL, f3 REAL, f6 REAL, f7 REAL, f8 REAL, f9 REAL,
             f10 REAL, f18 REAL, f20 REAL, f21 REAL, f23 REAL, f24 REAL,
-            f25 REAL, f350 REAL, f351 REAL,
+            f25 REAL, f350 REAL, f351 REAL, f17 REAL, f62 REAL,
             limit_up INTEGER, limit_down INTEGER,
             UNIQUE (trade_date, code)
         );
@@ -126,8 +126,9 @@ def init_db() -> None:
 
 
 def _migrate_quote_cols(conn) -> None:
-    """老库补列:昨收/涨跌停价 + 涨跌停标记（幂等）。"""
+    """老库补列:昨收/涨跌停价 + 涨跌停标记 + 今开/主力净流入（幂等）。"""
     added = {"f18": "REAL", "f350": "REAL", "f351": "REAL",
+             "f17": "REAL", "f62": "REAL",
              "limit_up": "INTEGER", "limit_down": "INTEGER"}
     for table in ("latest", "history"):
         have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}

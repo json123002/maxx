@@ -15,7 +15,8 @@ log = logging.getLogger("fetcher")
 
 HOSTS = ["https://push2.eastmoney.com", "https://push2delay.eastmoney.com"]
 # f350/f351 = 东财计算的涨停价/跌停价（已处理除权除息基准价，比自算更可靠）
-FIELDS = "f12,f14,f2,f3,f6,f7,f8,f9,f10,f18,f20,f21,f23,f24,f25,f350,f351,f100"
+# f17 = 今开（竞价涨幅用）; f62 = 主力净流入（涨停雷达用）
+FIELDS = "f12,f14,f2,f3,f6,f7,f8,f9,f10,f18,f20,f21,f23,f24,f25,f350,f351,f100,f17,f62"
 PAGE_SIZE = 100          # 接口上限（pz>100 会被静默截断）
 RETRY = 2
 HEADERS = {
@@ -32,7 +33,7 @@ _session.headers.update(HEADERS)
 FS_ALL = "m:1+t:2,m:0+t:6,m:0+t:80,m:1+t:23,m:0+t:81+s:2048"
 
 _NUM_FIELDS = ["f2", "f3", "f6", "f7", "f8", "f9", "f10", "f18",
-               "f20", "f21", "f23", "f24", "f25", "f350", "f351"]
+               "f20", "f21", "f23", "f24", "f25", "f350", "f351", "f17", "f62"]
 
 
 def limit_flags(price, limit_up_px, limit_down_px):

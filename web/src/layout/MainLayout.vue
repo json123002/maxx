@@ -11,11 +11,21 @@
         </svg>
         <span v-show="!collapsed" class="siderName">alpha-finder</span>
       </div>
-      <a-menu :selected-keys="[route.path]" mode="inline" class="siderMenu" @click="onMenu">
-        <a-menu-item v-for="m in menus" :key="m.path">
-          <template #icon><component :is="m.icon" /></template>
-          {{ m.title }}
-        </a-menu-item>
+      <a-menu v-model:openKeys="openKeys" :selected-keys="[route.path]" mode="inline" class="siderMenu" @click="onMenu">
+        <template v-for="m in menus" :key="m.path || m.key">
+          <a-sub-menu v-if="m.children" :key="m.key">
+            <template #icon><component :is="m.icon" /></template>
+            <template #title>{{ m.title }}</template>
+            <a-menu-item v-for="c in m.children" :key="c.path">
+              <template #icon><component :is="c.icon" /></template>
+              {{ c.title }}
+            </a-menu-item>
+          </a-sub-menu>
+          <a-menu-item v-else :key="m.path">
+            <template #icon><component :is="m.icon" /></template>
+            {{ m.title }}
+          </a-menu-item>
+        </template>
       </a-menu>
       <!-- 边缘折叠钮(ChatGPT 式):骑在侧边栏右缘的小圆钮 -->
       <button class="edgeToggle" :title="collapsed ? '展开侧栏' : '收起侧栏'"
@@ -73,12 +83,12 @@
 </template>
 
 <script setup>
-import { ref, computed, h } from "vue";
+import { ref, computed, h, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   DownOutlined, KeyOutlined, LogoutOutlined,
   DashboardOutlined, FundViewOutlined, TeamOutlined, StarOutlined,
-  FileTextOutlined, HistoryOutlined,
+  FileTextOutlined, HistoryOutlined, FireOutlined, SettingOutlined,
 } from "@ant-design/icons-vue";
 import { authState, logout } from "../stores/auth";
 import { themeMode, toggleTheme } from "../utils/theme";
@@ -90,19 +100,36 @@ const collapsed = ref(false);
 const pwdOpen = ref(false);
 
 // 菜单配置:新增功能页在这里加一项即可(adminOnly 仅管理员可见,rootOnly 仅隐藏 root 可见)
+// 带 children 的为一级分组;子项全被权限过滤掉时整组不显示
 const MENUS = [
   { path: "/home", title: "工作台", icon: DashboardOutlined },
-  { path: "/screener", title: "换手率筛选", icon: FundViewOutlined },
-  { path: "/history", title: "历史榜单", icon: HistoryOutlined },
+  { key: "grp-quote", title: "行情筛选", icon: FundViewOutlined, children: [
+    { path: "/screener", title: "换手率筛选", icon: FundViewOutlined },
+    { path: "/radar", title: "涨停雷达", icon: FireOutlined },
+    { path: "/history", title: "历史榜单", icon: HistoryOutlined },
+  ] },
   { path: "/watchlist", title: "我的自选", icon: StarOutlined },
-  { path: "/admin", title: "用户管理", icon: TeamOutlined, adminOnly: true },
-  { path: "/logs", title: "日志", icon: FileTextOutlined, rootOnly: true },
+  { key: "grp-sys", title: "系统管理", icon: SettingOutlined, children: [
+    { path: "/admin", title: "用户管理", icon: TeamOutlined, adminOnly: true },
+    { path: "/logs", title: "日志", icon: FileTextOutlined, rootOnly: true },
+  ] },
 ];
+const visible = (m) =>
+  (!m.adminOnly || ["super", "admin"].includes(authState.user?.role)) &&
+  (!m.rootOnly || authState.user?.hidden);
 const menus = computed(() =>
-  MENUS.filter(m =>
-    (!m.adminOnly || ["super", "admin"].includes(authState.user?.role)) &&
-    (!m.rootOnly || authState.user?.hidden))
+  MENUS.map((m) => m.children ? { ...m, children: m.children.filter(visible) } : m)
+    .filter((m) => (m.children ? m.children.length : visible(m)))
 );
+
+// 当前路由所在分组自动展开(保留用户手动开合的其它分组)
+const openKeys = ref([]);
+function syncOpen(path) {
+  const g = MENUS.find((m) => m.children?.some((c) => c.path === path));
+  if (g && !openKeys.value.includes(g.key)) openKeys.value = [...openKeys.value, g.key];
+}
+syncOpen(route.path);
+watch(() => route.path, syncOpen);
 
 function onMenu({ key }) { router.push(key); }
 
