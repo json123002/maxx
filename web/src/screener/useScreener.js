@@ -125,6 +125,55 @@ export function useScreener() {
     return get("auto") === "1";
   }
 
+  // ===== 我的策略(命名预设,localStorage 持久化,最多 20 个)=====
+  const PRESET_KEY = "tsm-presets";
+  const presets = ref((() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(PRESET_KEY) || "[]");
+      return Array.isArray(v) ? v : [];
+    } catch (e) { return []; }
+  })());
+  function persistPresets() {
+    try { localStorage.setItem(PRESET_KEY, JSON.stringify(presets.value)); } catch (e) {}
+  }
+  function currentFilters() {
+    return {
+      tMin: tMin.value, tMax: tMax.value, cMin: cMin.value, cMax: cMax.value,
+      kw: kw.value, mkts: mkts.value.slice(),
+      noST: noST.value, noSuspend: noSuspend.value,
+      metrics: metrics.value.map((m) => ({ k: m.k, min: m.min, max: m.max })),
+    };
+  }
+  function savePreset(name) {
+    name = (name || "").trim().slice(0, 16);
+    if (!name) { message.warning("先给策略起个名字"); return false; }
+    presets.value = presets.value.filter((p) => p.name !== name);
+    presets.value.unshift({ name, f: currentFilters() });
+    presets.value = presets.value.slice(0, 20);
+    persistPresets();
+    message.success("已保存策略「" + name + "」");
+    return true;
+  }
+  function applyPreset(name) {
+    const p = presets.value.find((x) => x.name === name);
+    if (!p) return;
+    const f = p.f, set = (r, v) => { r.value = v == null ? "" : v; };
+    set(tMin, f.tMin); set(tMax, f.tMax); set(cMin, f.cMin); set(cMax, f.cMax);
+    set(kw, f.kw);
+    if (Array.isArray(f.mkts)) mkts.value = MKT_DEFS.map((_, i) => !!f.mkts[i]);
+    noST.value = !!f.noST;
+    noSuspend.value = !!f.noSuspend;
+    metrics.value = normalizeMetricsState(f.metrics);
+    industry.value = ""; // 行业下拉依赖查询结果,换策略时清空避免误导
+    saveFilters();
+    refilter();
+    message.success("已加载策略「" + name + "」");
+  }
+  function deletePreset(name) {
+    presets.value = presets.value.filter((p) => p.name !== name);
+    persistPresets();
+  }
+
   // ===== 查询条件 → API 参数 =====
   function buildQuery() {
     const [t1, t2] = rangeVal(tMin.value, tMax.value);
@@ -410,6 +459,8 @@ export function useScreener() {
     querying, progressVisible, statusTxt,
     // 行业/徽标/面板
     industries, industryReady, srcBadge, senti, panelOpen, summary,
+    // 我的策略
+    presets, savePreset, applyPreset, deletePreset,
     // 渲染数据
     sortedRows, tableRows, cardRows, hasMore, indRows, extraCols, sortChips, capNote,
     // 方法

@@ -24,11 +24,12 @@ class AddIn(BaseModel):
 
 
 def _fkey_row(r, added: bool = True, created_at: str | None = None) -> dict:
-    """latest 行 → 东财字段名，附带自选状态/加选时间。"""
+    """latest 行 → 东财字段名，附带自选状态/加选时间/涨跌停标记。"""
     d = {
         "f12": r["code"], "f14": r["name"], "f100": r["industry"],
         "f2": r["f2"], "f3": r["f3"], "f8": r["f8"],
         "f6": r["f6"], "f20": r["f20"], "f9": r["f9"],
+        "limit_up": r["limit_up"], "limit_down": r["limit_down"],
         "added": added,
     }
     if created_at is not None:
@@ -42,7 +43,7 @@ def watch_list(user=Depends(current_user)):
     rows = get_conn().execute(
         "SELECT w.created_at AS w_created_at,"
         " COALESCE(l.code, w.code) AS code, COALESCE(l.name, w.name) AS name,"
-        " l.industry, l.f2, l.f3, l.f6, l.f8, l.f9, l.f20"
+        " l.industry, l.f2, l.f3, l.f6, l.f8, l.f9, l.f20, l.limit_up, l.limit_down"
         " FROM watchlist w LEFT JOIN latest l ON l.code = w.code"
         " WHERE w.user_id = ? ORDER BY w.created_at DESC",
         (user["id"],),

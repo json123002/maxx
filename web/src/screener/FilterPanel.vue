@@ -13,6 +13,25 @@ const {
   run, cancel, refilter, onKwInput, onMktChange,
   addMetricByKey, removeMetricByKey, onMetricInput,
 } = s;
+const { presets, savePreset, applyPreset, deletePreset } = s;
+
+// 「我的策略」:选择即加载;输入名字保存当前条件;选中后可删
+const presetSel = ref("");
+const presetName = ref("");
+function onPickPreset() {
+  if (presetSel.value) applyPreset(presetSel.value);
+}
+function onSavePreset() {
+  if (savePreset(presetName.value)) {
+    presetSel.value = presetName.value.trim().slice(0, 16);
+    presetName.value = "";
+  }
+}
+function onDelPreset() {
+  if (!presetSel.value) return;
+  deletePreset(presetSel.value);
+  presetSel.value = "";
+}
 
 // 「+ 添加指标」下拉
 const metricAddSel = ref("");
@@ -69,6 +88,16 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
         <button class="pill" id="goBtn" :disabled="querying" @click="run">{{ querying ? "查询中…" : "一键查询" }}</button>
       </div>
       <div class="row" style="margin-top:16px">
+        <div class="field"><span>我的策略</span>
+          <select v-model="presetSel" style="width:150px" @change="onPickPreset">
+            <option value="">选择策略…</option>
+            <option v-for="p in presets" :key="p.name" :value="p.name">{{ p.name }}</option>
+          </select>
+          <input type="text" v-model="presetName" placeholder="策略名" maxlength="16"
+                 style="width:100px" @keyup.enter="onSavePreset">
+          <button class="ghost" @click="onSavePreset">保存</button>
+          <button class="ghost" v-show="presetSel" @click="onDelPreset">删除</button>
+        </div>
         <div class="field"><span>自定义指标</span>
           <select id="metricAdd" v-model="metricAddSel" style="width:160px" @change="onAddMetric">
             <option value="">+ 添加指标</option>

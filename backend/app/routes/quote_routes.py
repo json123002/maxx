@@ -219,3 +219,48 @@ def quote_stock(code: str, user=Depends(current_user)):
 def health():
     meta = _snapshot_meta()
     return {"status": "ok", **meta}
+
+
+# ===== 历史榜单（每交易日 15:06 由调度器落收盘价到 history 表）=====
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+@router.get("/api/quote/history/dates")
+def history_dates(user=Depends(current_user)):
+    """可回看的交易日列表（新→旧，最多 60 天）。"""
+    rows = get_conn().execute(
+        "SELECT DISTINCT trade_date FROM history"
+        " ORDER BY trade_date DESC LIMIT 60").fetchall()
+    return {"dates": [r["trade_date"] for r in rows]}
+
+
+@router.get("/api/quote/history")
+def history_list(date: str = Query(default=""),
+                 kw: str = Query(default="", max_length=32),
+                 limit: int = Query(default=2000, ge=1, le=6000),
+                 user=Depends(current_user)):
+    """某交易日的收盘榜单：按换手率降序 + 当日情绪统计。"""
+    if not _DATE_RE.match(date):
+        raise HTTPException(400, "date 格式须为 YYYY-MM-DD")
+    conn = get_conn()
+    where, params = " WHERE trade_date = ?", [date]
+    kw = kw.strip()
+    if kw:
+        where += " AND (code LIKE ? OR name LIKE ?)"
+        params += ["%" + kw + "%"] * 2
+    total = conn.execute(
+        "SELECT COUNT(*) AS c FROM history" + where, params).fetchone()["c"]
+    rows = conn.execute(
+        "SELECT * FROM history" + where + " ORDER BY f8 DESC LIMIT ?",
+        (*params, limit)).fetchall()
+    stats = conn.execute(
+        "SELECT COUNT(*) AS valid,"
+        " SUM(CASE WHEN f3 > 0 THEN 1 ELSE 0 END) AS up,"
+        " SUM(CASE WHEN f3 < 0 THEN 1 ELSE 0 END) AS down,"
+        " SUM(CASE WHEN limit_up = 1 THEN 1 ELSE 0 END) AS limit_up,"
+        " SUM(CASE WHEN limit_down = 1 THEN 1 ELSE 0 END) AS limit_down"
+        " FROM history WHERE trade_date = ? AND f3 IS NOT NULL", (date,)).fetchone()
+    return {"date": date, "total": total,
+            "rows": [_row_to_fkeys(r) for r in rows],
+            "stats": {k: (stats[k] or 0)
+                      for k in ("valid", "up", "down", "limit_up", "limit_down")}}

@@ -487,3 +487,12 @@ button.ghost:hover { color: var(--txt); border-color: var(--line-strong); }
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ===== 涨跌停徽章(筛选表/卡片/自选/首页活跃榜共用) ===== */
+.lmBadge {
+  display: inline-block; font-size: 10px; font-weight: 700; line-height: 1.5;
+  border-radius: 3px; padding: 0 4px; margin-left: 6px; white-space: nowrap;
+  vertical-align: 1px;
+}
+.lmBadge.up { color: #fff; background: var(--up); }
+.lmBadge.down { color: #fff; background: var(--down); }

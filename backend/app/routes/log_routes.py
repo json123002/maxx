@@ -12,7 +12,7 @@ from ..security import current_user, require_root
 router = APIRouter(tags=["logs"])
 
 # 前端可上报的动作白名单（防刷库）；登录/自选/管理员操作等由服务端自行记录
-TRACK_ACTIONS = {"screener_run", "stock_view", "analysis_view"}
+TRACK_ACTIONS = {"screener_run", "stock_view", "analysis_view", "history_view"}
 
 
 class TrackIn(BaseModel):

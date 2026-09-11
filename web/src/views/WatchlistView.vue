@@ -162,6 +162,8 @@ onBeforeUnmount(() => {
           <button class="nm" @click="goStock(r.f12)">
             <b>{{ r.f14 }}</b>
             <span class="cd">{{ r.f12 }}</span>
+            <span v-if="r.limit_up === 1" class="lmBadge up">涨停</span>
+            <span v-else-if="r.limit_down === 1" class="lmBadge down">跌停</span>
           </button>
           <span class="col price">{{ fmtN(r.f2) }}</span>
           <span class="col" :class="cls(r.f3)">

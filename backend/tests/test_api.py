@@ -443,3 +443,26 @@ def test_backup_and_prune(client, tmp_path):
     assert db.prune_op_logs(180) == 1
     assert conn.execute(
         "SELECT COUNT(*) AS c FROM op_logs WHERE username = 'old'").fetchone()["c"] == 0
+
+
+# ===== 历史榜单回看 =====
+def test_history_endpoints(client):
+    h = login(client, "admin", "admin123")
+    # 落一天历史(用 latest 里的样本数据)
+    n = db.save_history("2026-09-10")
+    assert n == len(SAMPLE)
+    r = client.get("/api/quote/history/dates", headers=h).json()
+    assert "2026-09-10" in r["dates"]
+    # 榜单:换手降序、统计正确、涨跌停标记透出
+    d = client.get("/api/quote/history?date=2026-09-10", headers=h).json()
+    assert d["total"] == len(SAMPLE)
+    f8s = [x["f8"] for x in d["rows"] if x["f8"] is not None]
+    assert f8s == sorted(f8s, reverse=True)
+    assert d["stats"]["limit_up"] == 2 and d["stats"]["limit_down"] == 2  # 历史统计不剔 ST
+    assert any(x["f12"] == "600001" and x["limit_up"] == 1 for x in d["rows"])
+    # 关键词过滤 + 参数校验 + 未登录
+    assert client.get("/api/quote/history?date=2026-09-10&kw=钢铁",
+                      headers=h).json()["total"] == 1  # kw 只匹配代码/名称,600002 名称是"停牌股"
+    assert client.get("/api/quote/history?date=2026/09/10",
+                      headers=h).status_code == 400
+    assert client.get("/api/quote/history/dates").status_code == 401

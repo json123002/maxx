@@ -81,7 +81,7 @@
         <div v-if="hot.length" class="hot">
           <a v-for="(s, i) in hot" :key="s.f12" class="hRow" :href="quoteUrl(s.f12)" target="_blank" rel="noopener">
             <span class="hIdx">{{ i + 1 }}</span>
-            <span class="hName">{{ s.f14 }}<i class="hCode">{{ s.f12 }}</i></span>
+            <span class="hName">{{ s.f14 }}<i class="hCode">{{ s.f12 }}</i><span v-if="s.limit_up === 1" class="lmBadge up">涨停</span><span v-else-if="s.limit_down === 1" class="lmBadge down">跌停</span></span>
             <span class="hPx" :class="cls(s.f3)">{{ fmtN(s.f2) }}</span>
             <span class="hChg" :class="cls(s.f3)">{{ s.f3 > 0 ? "+" : "" }}{{ fmtN(s.f3) }}%</span>
             <span class="hTov">{{ fmtN(s.f8, 1) }}%</span>
@@ -90,6 +90,30 @@
         <div v-else class="hEmpty">暂无快照数据</div>
       </section>
     </div>
+
+    <!-- ===== 我的自选(用户最关心的问题:我的股票今天怎么样) ===== -->
+    <section class="blk">
+      <div class="secHead">
+        <span class="secName">我的自选</span>
+        <span class="secEn">Watchlist</span>
+        <router-link to="/watchlist" class="secMore">管理自选 →</router-link>
+      </div>
+      <div v-if="watchRows.length" class="watchStrip">
+        <router-link v-for="r in watchRows" :key="r.f12" class="wCard" :to="'/stock/' + r.f12">
+          <span class="wName">{{ r.f14 }}
+            <span v-if="r.limit_up === 1" class="lmBadge up">涨停</span>
+            <span v-else-if="r.limit_down === 1" class="lmBadge down">跌停</span>
+          </span>
+          <span class="wNums">
+            <b :class="cls(r.f3)">{{ typeof r.f3 === "number" ? (r.f3 > 0 ? "+" : "") + fmtN(r.f3) + "%" : "—" }}</b>
+            <i class="wTov">换手 {{ fmtN(r.f8) }}%</i>
+          </span>
+        </router-link>
+      </div>
+      <div v-else class="watchEmpty">
+        还没有自选股，去 <router-link to="/watchlist">添加自选</router-link> 或在筛选结果里点 ★
+      </div>
+    </section>
 
     <!-- ===== 免责声明 ===== -->
     <footer class="disclaimer">
@@ -147,6 +171,14 @@ const stats = reactive({ valid: null, up: null, down: null, flat: null, limit_up
 const senti = reactive({ temp: null, level: "", lv: 3 });
 const sentiTitle = ref("");
 const hot = ref([]);
+const watchRows = ref([]);   // 我的自选(最多展示 8 只)
+
+async function loadWatch() {
+  try {
+    const d = await api("/api/watchlist");
+    watchRows.value = (d.rows || []).slice(0, 8);
+  } catch { /* 自选加载失败不影响主页其他区块 */ }
+}
 
 const upPct = computed(() =>
   stats.valid ? Math.round((stats.up / stats.valid) * 1000) / 10 : 50);
@@ -223,9 +255,10 @@ try {
 let timer = null;
 onMounted(() => {
   load();
+  loadWatch();
   timer = setInterval(() => {
     const d = new Date(), mins = d.getHours() * 60 + d.getMinutes();
-    if (d.getDay() % 6 !== 0 && mins >= 555 && mins <= 910) load();
+    if (d.getDay() % 6 !== 0 && mins >= 555 && mins <= 910) { load(); loadWatch(); }
   }, 60_000);
 });
 onUnmounted(() => clearInterval(timer));
@@ -362,8 +395,26 @@ onUnmounted(() => clearInterval(timer));
 .hPx.up, .hChg.up { color: var(--up); } .hPx.down, .hChg.down { color: var(--down); }
 .hEmpty { color: var(--dim); font-size: 13px; padding: 36px 6px; }
 
-/* ===== 免责声明 ===== */
-.disclaimer {
+/* ===== 我的自选卡片条 ===== */
+.watchStrip {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px; margin-top: 14px;
+}
+.wCard {
+  display: flex; flex-direction: column; gap: 8px;
+  border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+  color: var(--txt); text-decoration: none; background: var(--panel);
+  transition: border-color .15s, transform .12s;
+}
+.wCard:hover { border-color: var(--accent); transform: translateY(-1px); }
+.wName { font-size: 13px; font-weight: 600; }
+.wNums { display: flex; align-items: baseline; justify-content: space-between; }
+.wNums b { font-family: var(--mono); font-size: 14px; }
+.wTov { font-style: normal; color: var(--dim); font-size: 11.5px; font-family: var(--mono); }
+.watchEmpty { padding: 22px 4px; color: var(--dim); font-size: 12.5px; }
+.watchEmpty a { color: var(--accent); }
+
+/* ===== 免责声明 ===== */.disclaimer {
   margin-top: 44px; padding-top: 14px; border-top: 1px solid var(--line);
   color: var(--dim); font-size: 11.5px; line-height: 1.8;
   display: flex; justify-content: space-between; align-items: baseline;

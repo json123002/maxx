@@ -144,7 +144,7 @@ onUnmounted(() => observer && observer.disconnect());
               </button>
             </td>
             <td class="l">{{ r.f12 }}</td>
-            <td class="l name"><a class="nameLink" :href="quoteUrl(r.f12)" target="_blank" rel="noopener">{{ r.f14 }}</a></td>
+            <td class="l name"><a class="nameLink" :href="quoteUrl(r.f12)" target="_blank" rel="noopener">{{ r.f14 }}</a><span v-if="r.limit_up === 1" class="lmBadge up">涨停</span><span v-else-if="r.limit_down === 1" class="lmBadge down">跌停</span></td>
             <td>{{ fmtN(r.f2) }}</td>
             <td :class="cls(r.f3)">{{ fmtN(r.f3) }}</td>
             <td><b>{{ fmtN(r.f8) }}</b></td>
@@ -182,7 +182,7 @@ onUnmounted(() => observer && observer.disconnect());
     <div id="list">
       <a class="card" v-for="r in cardRows" :key="r.f12" :href="quoteUrl(r.f12)" target="_blank" rel="noopener">
         <div class="c1">
-          <div class="nm"><b>{{ r.f14 }}</b><span class="cd">{{ r.f12 }}</span></div>
+          <div class="nm"><b>{{ r.f14 }}</b><span class="cd">{{ r.f12 }}</span><span v-if="r.limit_up === 1" class="lmBadge up">涨停</span><span v-else-if="r.limit_down === 1" class="lmBadge down">跌停</span></div>
           <div class="pr"><b>{{ fmtN(r.f2) }}</b><span class="chg" :class="cls(r.f3)">{{ chgText(r.f3) }}</span></div>
         </div>
         <div class="c2">

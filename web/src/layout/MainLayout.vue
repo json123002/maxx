@@ -78,7 +78,7 @@ import { useRoute, useRouter } from "vue-router";
 import {
   DownOutlined, KeyOutlined, LogoutOutlined,
   DashboardOutlined, FundViewOutlined, TeamOutlined, StarOutlined,
-  FileTextOutlined,
+  FileTextOutlined, HistoryOutlined,
 } from "@ant-design/icons-vue";
 import { authState, logout } from "../stores/auth";
 import { themeMode, toggleTheme } from "../utils/theme";
@@ -93,8 +93,9 @@ const pwdOpen = ref(false);
 const MENUS = [
   { path: "/home", title: "工作台", icon: DashboardOutlined },
   { path: "/screener", title: "换手率筛选", icon: FundViewOutlined },
-  { path: "/admin", title: "用户管理", icon: TeamOutlined, adminOnly: true },
+  { path: "/history", title: "历史榜单", icon: HistoryOutlined },
   { path: "/watchlist", title: "我的自选", icon: StarOutlined },
+  { path: "/admin", title: "用户管理", icon: TeamOutlined, adminOnly: true },
   { path: "/logs", title: "日志", icon: FileTextOutlined, rootOnly: true },
 ];
 const menus = computed(() =>
