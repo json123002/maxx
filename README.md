@@ -15,17 +15,23 @@ maxx/
       fetcher.py      东方财富全市场快照抓取（分页重试、去重、忽略系统代理）
       scheduler.py    交易时段每 3 分钟抓数 + 每交易日 15:06 落历史
       routes/         auth（登录/改密）· admin（用户管理）· quote（行情查询）
-    tests/            pytest（10 个用例，独立临时库，不触网）
-  web/                Vue3 前端工程（Vite + vue-router + ant-design-vue）
-    src/views/        LoginView(转盘登录) / HomeView(工作台) / ScreenerView(换手率筛选) / AdminView(用户管理)
+                        · watchlist（自选股）· log（操作日志，仅隐藏 root）
+    tests/            pytest（18 个用例，独立临时库，不触网）
+  web/                Vue3 前端工程（Vite + vue-router + ant-design-vue，包管理只用 pnpm）
+    src/views/        LoginView(转盘登录) / HomeView(工作台) / ScreenerView(换手率筛选)
+                        / WatchlistView(自选股) / StockView(个股详情+日K阶段标注)
+                        / LogView(操作日志) / AdminView(用户管理)
     src/layout/       MainLayout(左侧菜单+顶栏) / PwdModal(修改密码)
     src/screener/     筛选页组合式函数与组件（FilterPanel / ResultsPanel / metrics）
+    src/stock/        K 线图与日K阶段识别（phases.js，含 node --test 回归）
     src/analysis/     个股分析弹窗（取数三级兜底 + 指标 + 各战法评估，AnalysisModal 组件）
-  frontend/           前端构建产物（web/ 执行 npm run build 生成，勿手改；部署上传的就是它）
+  frontend/           前端构建产物（web/ 执行 pnpm build 生成，勿手改；部署上传的就是它）
   deploy/
     nginx.conf        站点配置（/api 反代 127.0.0.1:8000，gzip）
     turnover-api.service  systemd 单元
     deploy.py         一键部署脚本（本机执行，先构建前端再跑）
+    check_server.py   服务器巡检（服务/内存/库行数/日志，需 TS_PASSWORD）
+  .github/workflows/  CI：后端 pytest + 前端 pnpm test & build
 ```
 
 ## 本地开发
@@ -37,10 +43,11 @@ python -m pytest tests/ -q          # 跑测试
 python -m uvicorn app.main:app --reload --port 8000
 
 cd web
-npm install                         # 首次
-npm run dev                         # 前端热更新(:5173,/api 默认代理到线上 47.94.235.93,数据落服务器库)
-npm run dev:local                   # 改为代理本机 :8000 后端(需先按上面启动 uvicorn)
-npm run build                       # 构建到 frontend/(uvicorn 直接托管也是它)
+pnpm install                        # 首次(只用 pnpm,勿用 npm/yarn)
+pnpm dev                            # 前端热更新(:5173,/api 默认代理本机 :8000)
+pnpm dev:remote                     # 改为代理线上 47.94.235.93(数据落服务器库,慎操作)
+pnpm test                           # 日K阶段规则回归(node --test)
+pnpm build                          # 构建到 frontend/(uvicorn 直接托管也是它)
 ```
 
 打开 http://127.0.0.1:8000/ ，首次启动自动建库并创建管理员 **admin / admin123**。
@@ -63,6 +70,8 @@ python deploy/deploy.py
 | GET /api/quote/meta | 行业计数 + 情绪统计（按所选市场） |
 | GET /api/health | 服务与最近抓取状态（公开） |
 | GET/POST/PATCH/DELETE /api/admin/users | 用户管理（仅管理员） |
+| GET/POST /api/watchlist · DELETE /api/watchlist/{code} · GET /api/watchlist/search | 自选股（登录用户） |
+| POST /api/track · GET /api/logs | 行为埋点 / 操作日志（后者仅隐藏 root） |
 
 ## 数据说明
 

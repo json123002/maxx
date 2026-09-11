@@ -3,11 +3,13 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "packageManager": "pnpm@11.7.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "dev:remote": "set TS_API_TARGET=http://47.94.235.93&&vite"
+    "dev:remote": "cross-env TS_API_TARGET=http://47.94.235.93 vite",
+    "test": "node --test src/stock/phases.test.js"
   },
   "dependencies": {
     "@ant-design/icons-vue": "^7.0.1",
@@ -17,6 +19,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
+    "cross-env": "^7.0.3",
     "vite": "^6.4.3"
   }
 }
