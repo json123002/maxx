@@ -17,7 +17,7 @@ maxx/
       routes/         auth（登录/改密）· admin（用户管理）· quote（行情查询）
                         · watchlist（自选股）· radar（涨停雷达·一进二粗筛）
                         · log（操作日志，仅隐藏 root）
-    tests/            pytest（29 个用例，独立临时库，不触网）
+    tests/            pytest（30 个用例，独立临时库，不触网）
   web/                Vue3 前端工程（Vite + vue-router + ant-design-vue，包管理只用 pnpm）
     src/views/        LoginView(转盘登录) / HomeView(工作台) / ScreenerView(换手率筛选)
                         / WatchlistView(自选股) / StockView(个股详情+日K阶段标注)

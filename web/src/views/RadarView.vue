@@ -3,7 +3,7 @@
    昨日首板涨停 ∩ 今日竞价/换手/额比/资金/空间粗筛,六维 ✅⚠️❌ 徽章。
    竞价金额占比、上板时间、分时结构需盘中精细数据,点名称进个股详情终检。
    埋点 radar_view。 */
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { message } from "ant-design-vue";
 import { api, track } from "../api/client";
 import { cls, fmtN } from "../utils/format";
@@ -16,6 +16,9 @@ const rules = ref({});
 const review = ref(false); // 收盘落库后的复盘视角(竞价/额比为今日实际值)
 const loading = ref(false);
 const expanded = ref(""); // 展开「判定理由」的股票代码
+
+const firstCnt = computed(() => rows.value.filter((r) => r.board === 1).length);
+const lianbanCnt = computed(() => rows.value.length - firstCnt.value);
 
 const DIM_TXT = { good: "✓", warn: "~", bad: "✗" };
 const DIM_LABEL = { open: "竞价涨幅", tov: "换手", amt: "额比",
@@ -32,7 +35,9 @@ function dimRows(r) {
         ? (r.dist_high >= 0 ? "涨停价已突破前高" : "距前高 " + fmtN(r.dist_high) + "%")
         : "无前高参考" },
     { k: "gene", actual: (r.kill_a ? "A杀 ×" + r.kill_a + "，" : "无 A杀，")
-        + "最高 " + r.max_streak + " 连板" },
+        + (r.zhaban == null ? "炸板未统计(无日K)，"
+           : r.zhaban ? "炸板 ×" + r.zhaban + "，" : "")
+        + "近一年最高 " + r.max_streak + " 连板" },
   ].map((d) => ({ ...d, label: DIM_LABEL[d.k], mark: r.dims[d.k],
                   rule: rules.value[d.k] || "" }));
 }
@@ -91,7 +96,8 @@ onMounted(load);
           <b class="vdBad">{{ stat["放弃"] || 0 }}</b> 放弃
         </span>
         <span class="barSpacer"></span>
-        <span class="cnt" v-if="rows.length">共 {{ rows.length }} 只首板</span>
+        <span class="cnt" v-if="rows.length">共 {{ firstCnt }} 只首板<template
+          v-if="lianbanCnt">，另有 {{ lianbanCnt }} 只连板（非首板，列末参考）</template></span>
       </div>
 
       <div class="tblWrap" :class="{ loading }">
@@ -104,8 +110,8 @@ onMounted(load);
               <th title="名义换手 10-25% 为佳（实际换手口径需自由流通股本，此处偏宽）">换手 %</th>
               <th title="今日成交额 / 昨日成交额,0.5-1.5 为佳">额比</th>
               <th title="主力净流入 > 1 亿为佳">主力净流入</th>
-              <th title="涨停价相对 120 日收盘前高:突破或空间 >20% 为佳,距前高 8% 左右最危险">距前高</th>
-              <th title="近一年:A杀次数 / 最高连板">基因</th>
+              <th title="涨停价相对 120 日日K最高价:突破或空间 >20% 为佳,距前高 8% 左右最危险">距前高</th>
+              <th title="近一年股性:A杀 / 炸板(盘中触板未封) / 最高连板;有 A杀或炸板 ≥3 次 = 不合格">基因</th>
               <th>判定</th>
             </tr>
           </thead>
@@ -117,6 +123,8 @@ onMounted(load);
                 <router-link class="nameLink" :to="'/stock/' + r.f12"
                              @click.stop>{{ r.f14 }}</router-link>
                 <span v-if="r.limit_up === 1" class="lmBadge up">涨停</span>
+                <span v-if="r.board > 1" class="lmBadge cont"
+                      title="昨日已是连板（非首板），一进二窗口已过，仅供参考">已{{ r.board }}板</span>
               </td>
               <td class="l dimTxt">{{ r.f100 || "—" }}</td>
               <td>{{ r.free_cap_yi != null ? r.free_cap_yi + "亿" : "—" }}</td>
@@ -132,7 +140,8 @@ onMounted(load);
               <td><span class="dim" :class="r.dims.dist">{{ DIM_TXT[r.dims.dist] }}</span>
                 {{ r.dist_high != null ? (r.dist_high >= 0 ? "突破" : fmtN(r.dist_high) + "%") : "—" }}</td>
               <td><span class="dim" :class="r.dims.gene">{{ DIM_TXT[r.dims.gene] }}</span>
-                <span class="dimTxt">{{ r.kill_a ? "A杀×" + r.kill_a + " " : "" }}{{ r.max_streak }}板</span></td>
+                <span class="dimTxt">{{ r.kill_a ? "A杀×" + r.kill_a + " " : ""
+                  }}{{ r.zhaban ? "炸×" + r.zhaban + " " : "" }}最高{{ r.max_streak }}板</span></td>
               <td><span class="vdBadge" :class="'v-' + r.verdict">{{ r.verdict }}</span></td>
             </tr>
             <tr v-if="expanded === r.f12" class="whyRow">

@@ -1,6 +1,8 @@
 """涨停雷达：一进二候选筛选（服务端粗筛层）。
 
-口径：昨日（history 最新交易日）首板涨停 ∩ 今日（latest 快照）竞价/量能/资金过滤。
+口径：昨日（history 最新交易日）涨停（非 ST）∩ 今日（latest 快照）竞价/量能/资金过滤。
+连板判定以日K为准（从 t0 向前数连续涨停天数，history 落库断档也不失真）；
+日K不可用时退化 history t1 口径。非首板（连板）票不剔除，标注 board 排在末尾。
 基因与前高基于个股日K缓存（kline 模块，前复权 250 日）：前高取区间最高价，
 基因含 A杀/最高连板/炸板（盘中触及涨停但收盘未封）；日K不可用时退化到
 history 收盘序列（无炸板维度、窗口受落库天数限制）。
@@ -118,6 +120,25 @@ def _gene_bars(bars, th):
     return kill_a, max_streak, zhaban
 
 
+def _board_streak(bars, th):
+    """当前连板数：从最后一根（t0）向前数 pct >= th 的连续天数。
+
+    日K来自交易所行情，不受 history 落库断档影响——首板判定的权威口径。
+    """
+    n = 0
+    for b in reversed(bars):
+        if b["pct"] is not None and b["pct"] >= th:
+            n += 1
+        else:
+            break
+    return n
+
+
+def _board_hist(hd, t1):
+    """退化口径：只看 t1 是否也涨停（旧 NOT EXISTS 语义）；history 断档时不准。"""
+    return 2 if any(r["trade_date"] == t1 and r["limit_up"] for r in hd) else 1
+
+
 def _grade_dist(dist):
     """距前高：突破(>=0)或空间足(<=-20%) ✅；阻力区(-12~-4%) ❌；其余 ⚠️。"""
     if dist is None:
@@ -156,15 +177,12 @@ def radar_1to2(user=Depends(current_user)):
     yd = conn.execute(
         "SELECT h.code, h.name, h.industry, h.market, h.f6 AS y_amt"
         " FROM history h"
-        " WHERE h.trade_date = ? AND h.limit_up = 1 AND h.name NOT LIKE '%ST%'"
-        " AND NOT EXISTS(SELECT 1 FROM history p"
-        "               WHERE p.trade_date = ? AND p.code = h.code"
-        "               AND p.limit_up = 1)",
-        (t0, t1),
+        " WHERE h.trade_date = ? AND h.limit_up = 1 AND h.name NOT LIKE '%ST%'",
+        (t0,),
     ).fetchall()
     if not yd:
         return {"date": t0, "rows": [], "rules": RULES,
-                "note": t0 + " 无首板涨停（非 ST）"}
+                "note": t0 + " 无涨停（非 ST）"}
 
     codes = [r["code"] for r in yd]
     marks = ",".join("?" * len(codes))
@@ -202,6 +220,9 @@ def radar_1to2(user=Depends(current_user)):
             prev_high = max((b["high"] for b in pre if b["high"]), default=None)
             th = LIMIT_PCT.get(t["market"] or y["market"], 9.8)
             kill_a, max_streak, zhaban = _gene_bars(bars, th)
+            # 连板数以日K为准；末根不是 t0（缓存陈旧）时退回 history 口径
+            board = (_board_streak(bars, th) if bars[-1]["date"] == t0
+                     else _board_hist(hd, t1))
         else:
             # 退化口径：前高 = history 区间收盘最高；基因无炸板维度
             prev = [r["f2"] for r in hd if r["trade_date"] < t0
@@ -210,6 +231,7 @@ def radar_1to2(user=Depends(current_user)):
             kill_a, max_streak = _gene(
                 [(r["limit_up"], r["limit_down"]) for r in reversed(hd)])
             zhaban = None
+            board = _board_hist(hd, t1)
 
         f18 = t["f18"] or _prev_close(hd, t0)
         open_pct = ((t["f17"] - f18) / f18 * 100
@@ -246,11 +268,14 @@ def radar_1to2(user=Depends(current_user)):
             "prev_high": prev_high,
             "dist_high": round(dist, 1) if dist is not None else None,
             "kill_a": kill_a, "max_streak": max_streak, "zhaban": zhaban,
+            "board": board,  # 当前连板数：1=首板（候选池）；>1=连板，列末标注
             "dims": dims, "verdict": verdict,
         })
     rank = {"候选": 0, "观察": 1, "放弃": 2}
-    rows.sort(key=lambda r: (rank[r["verdict"]],
+    # 首板在前（按判定/资金排序）；连板票非本页目标，整体排末尾
+    rows.sort(key=lambda r: (r["board"] > 1, rank[r["verdict"]],
                              -(r["main_net_yi"] or -999)))
-    stat = {v: sum(1 for r in rows if r["verdict"] == v) for v in rank}
+    stat = {v: sum(1 for r in rows if r["board"] == 1 and r["verdict"] == v)
+            for v in rank}
     return {"date": t0, "rows": rows, "stat": stat, "rules": RULES,
             "review": review}

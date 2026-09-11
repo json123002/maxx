@@ -568,11 +568,11 @@ def test_radar_1to2(client, monkeypatch):
     _hist("2026-09-10", "600005", "测试基因", 7.43, 0, ld=1, f6=1.1e8)
     # 600001 的前高锚点(收盘 10.0):自给自足,不依赖其它用例落库的 SAMPLE 行
     _hist("2026-09-09", "600001", "测试钢铁", 10.0, 0, f6=3e8)
-    # 前日(t1=09-11):候选票都不涨停(首板判定);300001 涨停(→ 次日算连板,排除)
+    # 前日(t1=09-11):候选票都不涨停(首板判定);300001 涨停(→ 次日算连板,列末标注)
     _hist("2026-09-11", "600001", "测试钢铁", 9.5, 0, f6=4e8)
     _hist("2026-09-11", "600005", "测试基因", 6.69, 0, ld=1, f6=1e8)
     _hist("2026-09-11", "300001", "测试科技", 18.0, 1, f6=5e8)
-    # 昨日(t0=09-12)首板:600001/600005/300001(连板排除);ST 涨停被名称过滤
+    # 昨日(t0=09-12)涨停:600001/600005 首板、300001 连板;ST 涨停被名称过滤
     _hist("2026-09-12", "600001", "测试钢铁", 10.45, 1, f6=5e8)
     _hist("2026-09-12", "600005", "测试基因", 7.36, 1, f6=1.2e8)
     _hist("2026-09-12", "300001", "测试科技", 19.8, 1, f6=6e8)
@@ -595,14 +595,16 @@ def test_radar_1to2(client, monkeypatch):
     d = client.get("/api/radar/1to2", headers=h).json()
     assert d["date"] == "2026-09-12"
     codes = [r["f12"] for r in d["rows"]]
-    assert codes == ["600001", "600005"]   # 连板 300001、ST 000001 均被排除
-    a, b = d["rows"]
+    # ST 000001 仍被排除;连板 300001 不剔除,标注 board=2 排末尾
+    assert codes == ["600001", "600005", "300001"]
+    assert [r["board"] for r in d["rows"]] == [1, 1, 2]
+    a, b = d["rows"][0], d["rows"][1]
     assert a["verdict"] == "候选" and all(v == "good" for v in a["dims"].values())
     assert a["open_pct"] == 4.31 and a["amt_ratio"] == 1.2
     assert a["main_net_yi"] == 2.0 and a["dist_high"] == 15.0
     assert b["verdict"] == "放弃" and b["dims"]["gene"] == "bad"
     assert b["kill_a"] == 1 and b["max_streak"] == 2
-    assert d["stat"] == {"候选": 1, "观察": 0, "放弃": 1}
+    assert d["stat"] == {"候选": 1, "观察": 0, "放弃": 1}  # 统计只算首板
     assert d["rules"]["open"].startswith("高开 3~6%")  # 阈值口径随响应下发
     assert d["review"] is False                        # t0 是"明天",实盘口径
 
@@ -673,6 +675,45 @@ def test_radar_kline_gene(client, monkeypatch):
     assert (r["kill_a"], r["max_streak"], r["zhaban"]) == (1, 2, 3)
     assert r["dims"]["gene"] == "bad" and r["dims"]["dist"] == "bad"
     assert r["verdict"] == "放弃"
+
+
+def test_radar_board_streak_with_history_gap(client, monkeypatch):
+    """history 断档(09-09~09-11 未落库)时,连板数以日K为准:
+    600009 实际昨日(09-11)也涨停 → board=2 列末;600010 真首板 → board=1。"""
+    h = login(client, "admin", "admin123")
+    _pin_radar_today(monkeypatch, "2026-09-11")  # t0=09-12 ≠ 今天 → 实盘口径
+    fill = [_bar("2026-08-%02d" % n, 9.0, 0.5) for n in range(1, 20)]
+    bars = {
+        # 09-11 涨停(pct 10.0):history 没落库这天,旧口径会误判首板
+        "600009": fill + [_bar("2026-09-11", 9.9, 10.0),
+                          _bar("2026-09-12", 10.89, 10.0)],
+        "600010": fill + [_bar("2026-09-11", 9.5, 1.0),
+                          _bar("2026-09-12", 10.45, 10.0)],
+    }
+    # 模块级共享库:其它用例的票也可能在候选池里,日K只覆盖本例两只
+    monkeypatch.setattr(kline, "get_bars",
+                        lambda code, days=250: bars.get(code, []))
+    # t1=09-08(断档前最后一天)两只都未涨停 → 退化口径会以为都是首板
+    _hist("2026-09-08", "600009", "断档连板", 9.0, 0, f6=3e8)
+    _hist("2026-09-08", "600010", "断档首板", 9.2, 0, f6=3e8)
+    _hist("2026-09-12", "600009", "断档连板", 10.89, 1, f6=5e8)
+    _hist("2026-09-12", "600010", "断档首板", 10.45, 1, f6=5e8)
+    db.replace_latest([
+        _row("600009", "断档连板", "钢铁", "沪主板", 11.5, 5.6,
+             f350=11.98, f351=9.8, f6=6e8, f8=15.0, f17=11.3, f18=10.89,
+             f62=2e8, f21=50e8),
+        _row("600010", "断档首板", "钢铁", "沪主板", 11.5, 10.05,
+             f350=11.5, f351=9.4, f6=6e8, f8=15.0, f17=10.9, f18=10.45,
+             f62=2e8, f21=80e8),
+    ], "实时行情")
+    d = client.get("/api/radar/1to2", headers=h).json()
+    rows = {r["f12"]: r for r in d["rows"]}
+    assert rows["600010"]["board"] == 1 and rows["600009"]["board"] == 2
+    # 排序不变式:所有首板在所有连板之前;统计只含首板
+    boards = [r["board"] > 1 for r in d["rows"]]
+    assert boards == sorted(boards)
+    assert d["stat"]["候选"] == sum(
+        1 for r in d["rows"] if r["board"] == 1 and r["verdict"] == "候选")
 
 
 def test_kline_cache(client, monkeypatch):

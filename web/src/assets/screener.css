@@ -496,3 +496,4 @@ button.ghost:hover { color: var(--txt); border-color: var(--line-strong); }
 }
 .lmBadge.up { color: #fff; background: var(--up); }
 .lmBadge.down { color: #fff; background: var(--down); }
+.lmBadge.cont { color: #8a5a00; background: #f5c51833; }
