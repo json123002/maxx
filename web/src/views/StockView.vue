@@ -324,7 +324,7 @@ function goBack() {
 @media (max-width: 900px) {
   .stockWrap { height: auto; }
   .termGrid { flex-direction: column; }
-  .chartCol { height: 340px; flex: none; }
+  .chartCol { height: 520px; flex: none; }
   .sideCol { width: auto; overflow: visible; }
   .srcNote { display: none; }
 }

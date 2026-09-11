@@ -4,7 +4,8 @@
    - 交互:滚轮缩放(光标锚定) · 左右拖拽平移 · 双击复位 · 区间快捷切换
    - 十字光标:桌面鼠标移动显示 OHLC/涨跌幅/换手/量
    - 主题变量取色,明暗切换/窗口缩放自动重绘 */
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from "vue";
+import { detectPhases, selectVisiblePhase } from "./phases.js";
 import { themeMode } from "../utils/theme";
 
 const props = defineProps({
@@ -22,7 +23,34 @@ const RANGES = [
   { name: "3月", n: 60 }, { name: "半年", n: 120 },
   { name: "一年", n: 250 }, { name: "全部", n: 0 },
 ];
+/* ---------- 周期阶段标注 ---------- */
+const showPhases = ref(true);
+const phases = computed(() => detectPhases(props.bars));
+const phaseTypes = reactive({ flat: true, rise: true, bounce: true });
+const selectedPhase = shallowRef(null);
+const statusText = { forming: '正在形成 · 待确认', ongoing: '已确认 · 延续中', completed: '已确认 · 区间结束' };
+const enabledPhases = computed(() => phases.value.filter(p => phaseTypes[p.type]).sort((a, b) => b.e - a.e || b.s - a.s));
+const visiblePhases = computed(() => enabledPhases.value.filter(p => p.s < view.end && p.e >= view.end - view.count));
+const activePhase = computed(() => selectVisiblePhase(enabledPhases.value, view.end - view.count, view.end, selectedPhase.value, hoverIdx.value));
+function focusPhase(event) {
+  selectedPhase.value = enabledPhases.value[Number(event.target.value)];
+  const ph = selectedPhase.value;
+  if (!ph) return;
+  hoverIdx.value = -1;
+  view.count = Math.min(props.bars.length, Math.max(40, ph.days + 16));
+  view.end = Math.min(props.bars.length, Math.max(view.count, ph.e + 9));
+  draw();
+}
+const signed = v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+const PHASE_STYLE = {
+  flat:   { fill: "rgba(120,144,180,0.10)", border: "rgba(120,144,180,0.55)", tag: "rgba(120,144,180,0.9)" },
+  rise:   { fill: "rgba(235,77,75,0.08)",  border: "rgba(235,77,75,0.5)",  tag: "rgba(235,77,75,0.9)" },
+  bounce: { fill: "rgba(32,178,130,0.08)", border: "rgba(32,178,130,0.5)", tag: "rgba(32,178,130,0.9)" },
+};
+
 function setRange(n) {
+  selectedPhase.value = null;
+  hoverIdx.value = -1;
   const total = props.bars.length;
   view.count = n ? Math.min(n, total) : total;
   view.end = total;
@@ -45,7 +73,7 @@ function maArr(bars, p) {
 }
 
 // 布局常量(draw 与事件换算共用)
-const PAD_L = 8, PAD_R = 56, PAD_T = 26, AXIS_H = 20;
+const PAD_L = 8, PAD_R = 56, PAD_T = 52, AXIS_H = 20;
 const MIN_BARS = 20;
 
 function draw() {
@@ -62,7 +90,7 @@ function draw() {
   if (!bars.length) return;
 
   const n = bars.length;
-  view.count = Math.max(MIN_BARS, Math.min(view.count, n));
+  view.count = Math.min(n, Math.max(MIN_BARS, view.count));
   view.end = Math.max(view.count, Math.min(view.end, n));
   const start = view.end - view.count;
   const slice = bars.slice(start, view.end);
@@ -106,16 +134,55 @@ function draw() {
     ctx.fillText(fmtP(v), W - PAD_R + 6, gy);
   }
   // 底日期轴(最多 8 个)
-  const nLbl = Math.min(8, m);
+  const nLbl = Math.max(1, Math.min(8, m, Math.floor(plotW / 75)));
   ctx.textAlign = "center";
   for (let k = 0; k < nLbl; k++) {
     const i = Math.round((k * (m - 1)) / Math.max(nLbl - 1, 1));
     ctx.fillStyle = cDim;
-    ctx.fillText(slice[i].date.slice(2), x(i), H - AXIS_H / 2);
+    ctx.fillText(slice[i].date.slice(2), Math.max(PAD_L + 24, Math.min(W - PAD_R - 24, x(i))), H - AXIS_H / 2);
   }
   // 主副图分隔线
   ctx.strokeStyle = cLine;
   ctx.beginPath(); ctx.moveTo(PAD_L, volTop - 8); ctx.lineTo(W - PAD_R, volTop - 8); ctx.stroke();
+
+  // 周期阶段框(横盘/横盘后上涨/触底反弹,画在蜡烛下层)
+  if (showPhases.value) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(PAD_L, PAD_T, plotW, priceH - PAD_T); ctx.clip();
+    ctx.textAlign = "left";
+    const tagEnds = [-Infinity, -Infinity, -Infinity];
+    for (const ph of enabledPhases.value) {
+      const ps = Math.max(ph.s, start), pe = Math.min(ph.e, view.end - 1);
+      if (ps > pe) continue;
+      const st = PHASE_STYLE[ph.type];
+      const x0 = x(ps - start) - step / 2, x1 = x(pe - start) + step / 2;
+      const y0 = Math.max(PAD_T, y(ph.high) - 3), y1 = Math.min(priceH, y(ph.low) + 3);
+      ctx.fillStyle = st.fill;
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      ctx.strokeStyle = st.border; ctx.lineWidth = activePhase.value === ph ? 2 : 1;
+      ctx.setLineDash(ph.status === 'forming' ? [2, 4] : [6, 3]);
+      ctx.strokeRect(x0 + 0.5, y0 + 0.5, Math.max(1, x1 - x0 - 1), Math.max(1, y1 - y0 - 1));
+      ctx.setLineDash([]);
+      // 信号确认日与历史起点分开画。
+      if (ph.confirmedAt != null && ph.confirmedAt >= ps && ph.confirmedAt <= pe) {
+        const cx = x(ph.confirmedAt - start);
+        ctx.strokeStyle = st.tag; ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(cx, y0); ctx.lineTo(cx, y1); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = st.tag; ctx.beginPath();
+        ctx.moveTo(cx, y0 + 8); ctx.lineTo(cx - 4, y0); ctx.lineTo(cx + 4, y0); ctx.fill();
+      }
+      const label = ph.label + (ph.status === 'forming' ? ' · 待确认' : '');
+      const tw = ctx.measureText(label).width + 10;
+      const lane = tagEnds.findIndex(end => end + 4 <= x0);
+      if (lane >= 0 && x0 + tw <= W - PAD_R) {
+        const ty = PAD_T + 2 + lane * 17;
+        tagEnds[lane] = x0 + tw;
+        ctx.fillStyle = st.tag; ctx.fillRect(x0, ty, tw, 15);
+        ctx.fillStyle = '#fff'; ctx.fillText(label, x0 + 5, ty + 7.5);
+      }
+    }
+    ctx.restore();
+  }
 
   // 蜡烛(红涨绿跌)
   slice.forEach((b, i) => {
@@ -222,7 +289,7 @@ function onWheel(e) {
   const ratio = (anchor - (view.end - view.count)) / view.count;
   const factor = e.deltaY > 0 ? 1.18 : 1 / 1.18;
   const n = props.bars.length;
-  view.count = Math.max(MIN_BARS, Math.min(n, Math.round(view.count * factor)));
+  view.count = Math.min(n, Math.max(MIN_BARS, Math.round(view.count * factor)));
   view.end = Math.max(view.count, Math.min(n, Math.round(anchor + (1 - ratio) * view.count)));
   hoverIdx.value = -1;
   draw();
@@ -264,11 +331,14 @@ onMounted(() => {
 onBeforeUnmount(() => ro && ro.disconnect());
 watch(() => props.bars, () => setRange(90));
 watch(themeMode, () => setTimeout(draw, 0)); // 等 data-theme 落到 DOM 再取色
+watch(phaseTypes, draw);
 </script>
 
 <template>
+  <div class="kRoot">
   <div ref="wrap" class="kWrap">
     <div class="kRanges">
+      <button class="kRange" :class="{ on: showPhases }" @click="showPhases = !showPhases; draw()">周期</button>
       <button v-for="r in RANGES" :key="r.name" class="kRange"
               :class="{ on: r.n ? view.count === Math.min(r.n, bars.length) : view.count === bars.length }"
               @click="setRange(r.n)">{{ r.name }}</button>
@@ -285,13 +355,53 @@ watch(themeMode, () => setTimeout(draw, 0)); // 等 data-theme 落到 DOM 再取
     ></canvas>
     <div v-if="!bars.length" class="kEmpty">K线数据加载失败</div>
   </div>
+  <div v-if="showPhases" class="phasePanel">
+    <div class="phaseScope">当前视窗识别 {{ visiblePhases.length }} 个阶段 · 历史共 {{ enabledPhases.length }} 个 · 框选为规则识别，非买卖信号</div>
+    <div class="phaseFilters">
+      <label v-for="(name, type) in { flat: '横盘整理', rise: '横盘后上涨', bounce: '触底反弹' }" :key="type" :class="type">
+        <input type="checkbox" v-model="phaseTypes[type]">{{ name }}
+      </label>
+      <select v-if="enabledPhases.length" aria-label="定位历史阶段" :value="enabledPhases.indexOf(activePhase)" @change="focusPhase">
+        <option disabled :value="-1">当前视窗无阶段 · 可选择历史定位</option>
+        <option v-for="(ph, i) in enabledPhases" :key="ph.type + ph.s" :value="i">{{ visiblePhases.includes(ph) ? '当前' : '历史' }} · {{ ph.startDate }} · {{ ph.label }}</option>
+      </select>
+    </div>
+    <template v-if="activePhase">
+      <div class="phaseSummary"><strong>{{ activePhase.label }}</strong><span>{{ statusText[activePhase.status] }}</span></div>
+      <div>{{ activePhase.startDate }} ~ {{ activePhase.endDate }} · {{ activePhase.days }} 个交易日 · 收盘区间涨跌 {{ signed(activePhase.pct) }}</div>
+      <div>价格范围 {{ fmtP(activePhase.low) }} ~ {{ fmtP(activePhase.high) }} · 确认日 {{ activePhase.confirmedDate || '待确认' }}
+        <span v-if="activePhase.type !== 'flat'"> · 确认日量 / 前5日均量 {{ activePhase.volumeRatio == null ? '暂无' : activePhase.volumeRatio.toFixed(2) + '倍' }}{{ activePhase.volumeRatio == null ? '' : activePhase.volumeRatio >= 1.5 ? '（放量支持）' : '（未达1.5倍）' }}</span>
+      </div>
+      <div v-if="activePhase.type === 'rise'">前置横盘 {{ activePhase.baseStartDate }} ~ {{ activePhase.baseEndDate }} · 箱顶 {{ fmtP(activePhase.referencePrice) }}</div>
+      <div v-if="activePhase.type === 'flat'">平台振幅 {{ activePhase.rangePct.toFixed(1) }}% · {{ activePhase.days < 20 ? '短周期平台（8～19日）' : '中期横盘（20日及以上）' }}</div>
+      <div v-if="activePhase.confirmationMethod">确认依据：{{ activePhase.confirmationMethod }}</div>
+      <div v-if="activePhase.type === 'rise'">突破阈值 {{ fmtP(activePhase.threshold) }} · 确认后最高收盘涨幅 {{ signed(activePhase.maxGainPct) }} · 回撤阈值 {{ activePhase.pullbackPct.toFixed(1) }}% · {{ activePhase.endReason }}</div>
+      <div v-if="activePhase.type === 'bounce'">底部低价 {{ fmtP(activePhase.referencePrice) }} · 低点至区间末收盘反弹 {{ signed(activePhase.reboundPct) }}</div>
+    </template>
+    <div v-else>{{ !bars.length ? '等待日K数据' : !Object.values(phaseTypes).some(Boolean) ? '请选择阶段类型' : '当前视窗没有符合规则的阶段，可切换半年 / 一年或选择历史定位' }}</div>
+    <details><summary>识别规则与确认口径</summary>
+      <p>短平台至少8日，中期横盘至少20日；整体振幅≤12%，首尾分组均价偏移≤4%，净位移 / 逐日收盘位移总和≤0.55，以排除单边爬升。突破先越过箱顶加较大者（1.5%箱顶、0.5倍14日平均真实波幅），再满足收盘突破3%、量达前5日均量1.5倍、连续两日站稳中的一项。</p>
+      <p>突破后最多跟踪40日；跌回箱顶判为失效，或最高收盘回撤达到确认日冻结阈值（2倍平均真实波幅 / 收盘价，限制8%～15%）结束。反弹需创20日低点、较前20日最高价回落≥15%，至少等待2日，20日内收盘反弹≥8%；创新低或收盘回撤8%结束。终止当日包含在框内。</p>
+      <p>箭头与竖虚线标记确认日；起点仅用于历史复盘，待确认区间可能消失。已确认区间可继续延伸，日内未收盘数据仍会变化。不复权数据可能受除权影响。</p>
+    </details>
+  </div>
+  </div>
 </template>
 
 <style scoped>
-.kWrap { position: relative; width: 100%; height: 100%; }
+.kRoot { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.kWrap { position: relative; width: 100%; flex: 1; min-height: 160px; overflow: hidden; }
+.phasePanel { flex: none; max-height: 185px; overflow: auto; border-top: 1px solid var(--line); padding: 9px 12px; font-size: 11px; line-height: 1.8; color: var(--dim); }
+.phaseFilters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 4px; }
+.phaseFilters label { display: flex; align-items: center; gap: 3px; cursor: pointer; }
+.phaseFilters .flat { color: #7890b4; } .phaseFilters .rise { color: #eb4d4b; } .phaseFilters .bounce { color: #20b282; }
+.phaseFilters select { max-width: 100%; background: var(--panel); color: var(--txt); border: 1px solid var(--line); border-radius: 4px; font: inherit; }
+.phaseSummary { display: flex; gap: 12px; color: var(--txt); }
+.phaseScope { font-size: 11px; margin-bottom: 4px; }
+.phasePanel summary { cursor: pointer; } .phasePanel p { margin: 4px 0; }
 canvas { display: block; cursor: crosshair; touch-action: pan-y; }
 .kRanges {
-  position: absolute; top: 6px; right: 62px; z-index: 2;
+  position: absolute; top: 28px; right: 62px; z-index: 2;
   display: flex; gap: 2px; background: var(--panel);
   border: 1px solid var(--line); border-radius: 999px; padding: 2px;
 }
