@@ -21,6 +21,7 @@ const quote = ref(null);      // 后端快照行(f 字段)
 const bars = ref([]);         // 日K
 const flows = ref([]);        // 资金流(近10日)
 const kSrc = ref("");
+const kLoading = ref(true);   // K线取数中(空态显示加载动画,失败才显示"加载失败")
 const notFound = ref(false);
 
 /* ---------- 取数 ---------- */
@@ -37,7 +38,8 @@ onMounted(async () => {
   }
   // K线/资金流失败不阻塞整页
   fetchKline(code, 250).then((r) => { bars.value = r.bars; kSrc.value = r.source; })
-    .catch(() => {});
+    .catch(() => {})
+    .finally(() => { kLoading.value = false; });
   fetchMoneyFlow(code).then((f) => { flows.value = f; }).catch(() => {});
 });
 
@@ -165,7 +167,7 @@ function goBack() {
     <!-- ===== 终端主区:左K线 + 右数据栏 ===== -->
     <div v-else class="termGrid">
       <div class="chartCol">
-        <KChart :bars="bars" />
+        <KChart :bars="bars" :loading="kLoading" />
       </div>
 
       <aside class="sideCol">

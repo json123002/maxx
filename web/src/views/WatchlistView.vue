@@ -2,13 +2,14 @@
 /* ===== 我的自选：搜索添加 + 自选列表(实时快照行情) =====
    交互:顶部搜索框防抖查询 → 下拉结果一键添加;列表行 hover 显示移除。
    数据源:后端 watchlist 关联 latest 快照,与筛选页同一份行情。 */
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { message } from "ant-design-vue";
 import { api } from "../api/client";
 import { cls, fmtN, fmtYiT } from "../utils/format";
 import { watchState } from "../stores/watchlist";
 import AnalysisModal from "../analysis/AnalysisModal.vue";
+import ConfirmModal from "../components/ConfirmModal.vue";
 
 const router = useRouter();
 
@@ -40,14 +41,28 @@ async function load() {
   }
 }
 
-async function remove(code) {
+/* ---------- 移除自选(二次确认) ---------- */
+const rmState = reactive({ open: false, row: null, loading: false });
+
+function askRemove(r) {
+  rmState.row = r;
+  rmState.open = true;
+}
+
+async function remove() {
+  const r = rmState.row;
+  if (!r) return;
+  rmState.loading = true;
   try {
-    await api("/api/watchlist/" + code, { method: "DELETE" });
-    rows.value = rows.value.filter((r) => r.f12 !== code);
-    watchState.codes.delete(code);
-    message.success("已移除 " + code);
+    await api("/api/watchlist/" + r.f12, { method: "DELETE" });
+    rows.value = rows.value.filter((x) => x.f12 !== r.f12);
+    watchState.codes.delete(r.f12);
+    rmState.open = false;
+    message.success("已移除 " + r.f14);
   } catch (err) {
     if (err.message !== "unauthorized") message.error(err.message || "移除失败");
+  } finally {
+    rmState.loading = false;
   }
 }
 
@@ -220,7 +235,7 @@ onBeforeUnmount(() => {
           <span class="col dim hide-s">额 {{ fmtYiT(r.f6) }}</span>
           <span class="col dim hide-s">{{ (r.created_at || "").slice(0, 10) }} 加入</span>
           <button class="anaLink" @click="openAnalysis(r.f12)">分析</button>
-          <button class="rmBtn" title="移除自选" @click="remove(r.f12)">
+          <button class="rmBtn" title="移除自选" @click="askRemove(r)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
               <path d="M18 6 6 18M6 6l12 12" />
@@ -236,6 +251,17 @@ onBeforeUnmount(() => {
 
     <!-- 内置个股分析弹窗(rows 供板块共振/情绪统计取数) -->
     <AnalysisModal ref="anaRef" :rows="rows" />
+
+    <!-- 移除自选二次确认 -->
+    <ConfirmModal
+      :open="rmState.open"
+      :title="'移除自选 ' + (rmState.row ? rmState.row.f14 : '')"
+      :desc="rmState.row ? rmState.row.f12 + ' 将从你的自选列表中移除。' : ''"
+      ok-text="移除"
+      :loading="rmState.loading"
+      @confirm="remove"
+      @close="rmState.open = false"
+    />
   </div>
 </template>
 

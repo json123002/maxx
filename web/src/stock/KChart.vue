@@ -10,6 +10,7 @@ import { themeMode } from "../utils/theme";
 
 const props = defineProps({
   bars: { type: Array, default: () => [] }, // [{date,open,close,high,low,vol,pct,turnover}]
+  loading: { type: Boolean, default: false }, // 取数中:空态显示加载动画而非"加载失败"
 });
 
 const wrap = ref(null);
@@ -353,7 +354,12 @@ watch(phaseTypes, draw);
       @mouseleave="onLeave"
       @dblclick="onDblClick"
     ></canvas>
-    <div v-if="!bars.length" class="kEmpty">K线数据加载失败</div>
+    <div v-if="!bars.length" class="kEmpty">
+      <div v-if="loading" class="kLoading">
+        <span class="kSpin"></span>K线加载中…
+      </div>
+      <template v-else>K线数据加载失败</template>
+    </div>
   </div>
   <div v-if="showPhases" class="phasePanel">
     <div class="phaseScope">当前视窗识别 {{ visiblePhases.length }} 个阶段 · 历史共 {{ enabledPhases.length }} 个 · 框选为规则识别，非买卖信号</div>
@@ -416,4 +422,11 @@ canvas { display: block; cursor: crosshair; touch-action: pan-y; }
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--dim); font-size: 13px;
 }
+.kLoading { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.kSpin {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 2.5px solid var(--line-strong); border-top-color: var(--accent);
+  animation: kSpinTurn .9s cubic-bezier(.5, .1, .5, .9) infinite;
+}
+@keyframes kSpinTurn { to { transform: rotate(360deg); } }
 </style>

@@ -221,6 +221,22 @@ onMounted(load);
   border-color: var(--line) !important;
   color: var(--txt) !important;
   border-radius: 8px !important;
+  box-shadow: none !important;
+}
+/* allow-clear 会让 a-input 多包一层 affix-wrapper(可见的框),内层输入框透明 */
+:deep(.ant-input-affix-wrapper) {
+  background: var(--panel-2) !important;
+  border-color: var(--line) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+:deep(.ant-input-affix-wrapper .ant-input) { background: transparent !important; }
+/* 聚焦态:accent 细光环,不用 antd 默认蓝色光晕 */
+:deep(.ant-input-affix-wrapper-focused),
+:deep(.ant-input:focus),
+:deep(.ant-select-focused .ant-select-selector) {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-dim) !important;
 }
 :deep(.ant-input::placeholder) { color: var(--dim); }
 :deep(.ant-select-arrow), :deep(.ant-input-clear-icon) { color: var(--dim); }

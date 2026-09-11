@@ -9,11 +9,12 @@ import { onMounted, reactive, ref } from "vue";
 import { message } from "ant-design-vue";
 // 管理页专属重组件按需引入（不进全局注册,首页主包不带 Table/Select 等）
 import {
-  Popconfirm as APopconfirm, Radio as ARadio, RadioGroup as ARadioGroup,
+  Radio as ARadio, RadioGroup as ARadioGroup,
   Select as ASelect, SelectOption as ASelectOption, Table as ATable,
 } from "ant-design-vue";
 import { api } from "../api/client";
 import { authState } from "../stores/auth";
+import ConfirmModal from "../components/ConfirmModal.vue";
 
 const me = authState.user; // 路由守卫已保证登录且为 admin
 
@@ -164,13 +165,26 @@ async function onResetOk() {
 }
 
 /* ---------- 行内操作：删除 ---------- */
-async function onDelete(u) {
+const deleteState = reactive({ open: false, user: null, loading: false });
+
+function openDelete(u) {
+  deleteState.user = u;
+  deleteState.open = true;
+}
+
+async function onDelete() {
+  const u = deleteState.user;
+  if (!u) return;
+  deleteState.loading = true;
   try {
     await api("/api/admin/users/" + u.id, { method: "DELETE" });
     message.success("已删除 " + u.username);
+    deleteState.open = false;
     loadUsers();
   } catch (err) {
     showErr(err);
+  } finally {
+    deleteState.loading = false;
   }
 }
 
@@ -232,14 +246,7 @@ onMounted(loadUsers);
               <button class="opBtn" :disabled="!canManage(record)" @click="openReset(record)">
                 重置密码
               </button>
-              <a-popconfirm
-                :title="'确定删除用户 ' + record.username + ' ？'"
-                ok-text="删除"
-                cancel-text="取消"
-                @confirm="onDelete(record)"
-              >
-                <button class="opBtn danger" :disabled="!canManage(record)">删除</button>
-              </a-popconfirm>
+              <button class="opBtn danger" :disabled="!canManage(record)" @click="openDelete(record)">删除</button>
             </div>
           </template>
         </template>
@@ -308,6 +315,17 @@ onMounted(loadUsers);
         @press-enter="onResetOk"
       />
     </a-modal>
+
+    <!-- 删除用户二次确认 -->
+    <ConfirmModal
+      :open="deleteState.open"
+      :title="'删除用户 ' + (deleteState.user ? deleteState.user.username : '')"
+      desc="该账号将立即失去访问权限，此操作不可恢复。"
+      ok-text="删除"
+      :loading="deleteState.loading"
+      @confirm="onDelete"
+      @close="deleteState.open = false"
+    />
   </div>
 </template>
 
@@ -399,6 +417,13 @@ onMounted(loadUsers);
   border-color: var(--line) !important;
   color: var(--txt) !important;
   border-radius: 8px !important;
+  box-shadow: none !important;
+}
+:deep(.ant-input-affix-wrapper-focused),
+:deep(.ant-input:focus),
+:deep(.ant-select-focused .ant-select-selector) {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-dim) !important;
 }
 :deep(.ant-input::placeholder) { color: var(--dim); }
 :deep(.ant-input-password .ant-input) { background: transparent !important; }
