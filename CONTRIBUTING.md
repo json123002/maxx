@@ -30,3 +30,9 @@ cd web && pnpm test && pnpm build
 ## 部署
 
 只有维护者执行部署；部署对应 main 上的提交，不部署未合并的本地改动。
+
+**首选 CI/CD**：GitHub 仓库 → Actions → Deploy → Run workflow（可选 all / frontend-only）。
+流程：跑测试 → 构建前端 → 打包上传 → 服务器解包、装依赖、重启服务、健康检查，前端异常自动回滚。
+依赖仓库 Secret `DEPLOY_SSH_KEY`（部署专用私钥，公钥在服务器 authorized_keys 里）。
+
+本地脚本（`deploy/deploy.py` / `publish_frontend.py`）保留为应急通道，需 `TS_PASSWORD` 环境变量。

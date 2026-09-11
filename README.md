@@ -56,6 +56,11 @@ pnpm build                          # 构建到 frontend/(uvicorn 直接托管�
 
 ## 部署（服务器 47.94.235.93）
 
+首选 CI/CD：仓库 **Actions → Deploy → Run workflow**（可选 `all` 或 `frontend-only`），
+自动跑测试、构建、上传、重启服务并健康检查（前端异常自动回滚）。
+
+应急通道（本机执行，需 `TS_PASSWORD` 环境变量）：
+
 ```bash
 python deploy/deploy.py
 ```

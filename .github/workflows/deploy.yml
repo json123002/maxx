@@ -1,0 +1,104 @@
+name: Deploy
+
+# 手动触发：Actions -> Deploy -> Run workflow
+# 需要仓库 Secrets：DEPLOY_SSH_KEY（部署用 SSH 私钥，见 CONTRIBUTING.md）
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "部署内容"
+        type: choice
+        options:
+          - all              # 后端 + 前端（重启服务）
+          - frontend-only    # 只发前端静态文件（不重启后端）
+        default: all
+
+concurrency:
+  group: deploy-prod       # 防止两个人同时点部署
+  cancel-in-progress: false
+
+env:
+  HOST: 47.94.235.93
+  USER: root
+  REMOTE: /opt/turnover-screener
+  PIP_MIRROR: https://mirrors.aliyun.com/pypi/simple/
+
+jobs:
+  # 部署前先过一遍测试：没测过的代码不上生产
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r backend/requirements.txt pytest
+      - run: cd backend && python -m pytest tests/ -q
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build frontend
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: cd web && pnpm install --frozen-lockfile && pnpm test && pnpm build
+
+      - name: Package release
+        run: tar czf release.tgz backend frontend
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload release
+        run: scp -i ~/.ssh/deploy_key release.tgz "$USER@$HOST:/tmp/ts-release.tgz"
+
+      - name: Deploy on server
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "$USER@$HOST" "TS_TARGET='$TARGET' PIP_MIRROR='$PIP_MIRROR' bash -s" << 'EOF'
+          set -e
+          cd /opt/turnover-screener
+
+          echo "== backup current frontend =="
+          rm -rf frontend.bak && cp -a frontend frontend.bak
+
+          echo "== extract new release =="
+          tar xzf /tmp/ts-release.tgz -C /opt/turnover-screener
+          rm -f /tmp/ts-release.tgz
+
+          if [ "$TS_TARGET" = "all" ]; then
+            echo "== backend deps + restart =="
+            cd /opt/turnover-screener/backend
+            [ -d venv ] || python3.11 -m venv venv
+            venv/bin/pip install -q -r requirements.txt -i "$PIP_MIRROR"
+            systemctl restart turnover-api
+            sleep 3
+            curl -sf http://127.0.0.1:8000/api/health
+            echo
+          fi
+
+          echo "== verify frontend =="
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/index.html)
+          if [ "$code" != "200" ]; then
+            echo "frontend check failed (HTTP $code), rolling back"
+            rm -rf frontend && mv frontend.bak frontend
+            exit 1
+          fi
+          echo "frontend HTTP $code, deploy OK"
+          EOF
