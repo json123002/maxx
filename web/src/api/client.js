@@ -25,10 +25,29 @@ export async function api(url, opts) {
   return d;
 }
 
-// 行为埋点上报:fire-and-forget,失败静默(动作白名单见后端 log_routes)
+/* 行为埋点上报:fire-and-forget,失败静默(动作白名单见后端 log_routes)。
+   同 action+detail 60 秒内去重——刷新/来回切页不重复记;
+   状态存 sessionStorage,整页刷新(F5 后 JS 状态清零)依然生效。 */
+const TRACK_GAP = 60_000;
+const TRACK_KEY = "track-dedup";
+
+function _throttled(key) {
+  try {
+    const m = JSON.parse(sessionStorage.getItem(TRACK_KEY) || "{}");
+    const now = Date.now();
+    if (now - (m[key] || 0) < TRACK_GAP) return true;
+    m[key] = now;
+    for (const k in m) if (now - m[k] >= TRACK_GAP) delete m[k];
+    sessionStorage.setItem(TRACK_KEY, JSON.stringify(m));
+  } catch { /* storage 不可用则不去重,直接放行 */ }
+  return false;
+}
+
 export function track(action, detail = "") {
+  detail = String(detail).slice(0, 300);
+  if (_throttled(action + "|" + detail)) return;
   apiFetch("/api/track", {
     method: "POST",
-    body: { action, detail: String(detail).slice(0, 300) },
+    body: { action, detail },
   }).catch(() => {});
 }

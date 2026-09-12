@@ -124,8 +124,13 @@ const sel = computed(() => {
 });
 const stockTab = computed(() => tab.value !== "monitor");
 
+// 仅用户主动点股票/点个股页签时,选中变化才上报 f10_view;
+// onMounted 预选、删除后递补等被动选中不上报(否则刷新一次记一条假"查看F10")
+let userPick = false;
+
 // 点股票:切到个股页签(已在个股视图则保持当前页签)
 function pick(code, t) {
+  userPick = true;
   selected.value = code;
   if (t) tab.value = t;
   else if (!stockTab.value) tab.value = "fund";
@@ -134,7 +139,7 @@ function pick(code, t) {
 function pickTab(t) {
   if (t !== "monitor" && !selected.value) {
     const first = starRows.value[0] || rows.value[0];
-    if (first) selected.value = first.f12;
+    if (first) { userPick = true; selected.value = first.f12; }
   }
   tab.value = t;
 }
@@ -422,6 +427,7 @@ async function removeWatch() {
     }
     if (selected.value === r.f12) {
       const first = starRows.value[0] || rows.value[0];
+      userPick = false;   // 删除后的递补选中非用户主动查看,不报 f10_view
       selected.value = first ? first.f12 : "";
     }
     rmState.open = false;
@@ -619,14 +625,16 @@ const flowChart = computed(() => {
 const f10Cache = reactive({});
 const f10 = computed(() => f10Cache[selected.value]?.data || null);
 
-async function loadF10(code) {
+async function loadF10(code, trackIt = true) {
   if (f10Cache[code]?.data || f10Cache[code]?.loading) return;
   f10Cache[code] = { loading: true, data: null, error: false };
   try {
     f10Cache[code] = { loading: false, data: await fetchF10(code), error: false };
-    // 埋点:查看 F10 资料(缓存命中不重复上报)
-    const r = rows.value.find((x) => x.f12 === code);
-    track("f10_view", code + (r && r.f14 ? " " + r.f14 : ""));
+    // 埋点:查看 F10 资料(缓存命中不重复上报;自动预选/递补不算用户查看)
+    if (trackIt) {
+      const r = rows.value.find((x) => x.f12 === code);
+      track("f10_view", code + (r && r.f14 ? " " + r.f14 : ""));
+    }
   } catch {
     f10Cache[code] = { loading: false, data: null, error: true };
   }
@@ -697,7 +705,8 @@ function openAnalysis(code) {
 watch(selected, (code) => {
   if (!code) return;
   loadFlow(code);
-  loadF10(code);
+  loadF10(code, userPick);
+  userPick = false;
 });
 
 /* ---------- 生命周期 ---------- */

@@ -13,11 +13,11 @@ const routes = [
       { path: "screener", name: "screener", component: () => import("../views/ScreenerView.vue"), meta: { title: "换手率筛选" } },
       { path: "admin", name: "admin", component: () => import("../views/AdminView.vue"), meta: { title: "用户管理", admin: true } },
       { path: "watchlist", name: "watchlist", component: () => import("../views/WatchlistView.vue"), meta: { title: "我的自选" } },
-      { path: "desk", name: "desk", component: () => import("../views/MyDeskView.vue"), meta: { title: "我的工作台" } },
-      { path: "history", name: "history", component: () => import("../views/HistoryView.vue"), meta: { title: "历史榜单" } },
-      { path: "radar", name: "radar", component: () => import("../views/RadarView.vue"), meta: { title: "涨停雷达" } },
-      { path: "flow", name: "flow", component: () => import("../views/CapitalFlowView.vue"), meta: { title: "板块资金" } },
-      { path: "stock/:code", name: "stock", component: () => import("../views/StockView.vue"), meta: { title: "个股详情" } },
+      { path: "desk", name: "desk", component: () => import("../views/MyDeskView.vue"), meta: { title: "我的工作台", pageTrack: false } },
+      { path: "history", name: "history", component: () => import("../views/HistoryView.vue"), meta: { title: "历史榜单", pageTrack: false } },
+      { path: "radar", name: "radar", component: () => import("../views/RadarView.vue"), meta: { title: "涨停雷达", pageTrack: false } },
+      { path: "flow", name: "flow", component: () => import("../views/CapitalFlowView.vue"), meta: { title: "板块资金", pageTrack: false } },
+      { path: "stock/:code", name: "stock", component: () => import("../views/StockView.vue"), meta: { title: "个股详情", pageTrack: false } },
       // 操作日志:仅隐藏 root 可见(菜单隐藏 + 路由守卫 + 后端 404 三道)
       { path: "logs", name: "logs", component: () => import("../views/LogView.vue"), meta: { title: "操作日志", root: true } },
     ],
@@ -49,9 +49,12 @@ router.beforeEach(async (to) => {
   return true;
 });
 
-// 页面打开埋点：仅登录后访问非公开页时上报（fire-and-forget，失败静默）
+// 页面打开埋点：仅登录后访问非公开页时上报（fire-and-forget，失败静默）。
+// 带 pageTrack:false 的页面(工作台/雷达/资金流/历史/个股)有各自的 *_view
+// 专属埋点且附带详情,跳过通用 page_view 避免一次打开记两条。
 router.afterEach((to) => {
-  if (!to.meta.public && getToken()) track("page_view", to.meta.title || to.path);
+  if (!to.meta.public && to.meta.pageTrack !== false && getToken())
+    track("page_view", to.meta.title || to.path);
 });
 
 export default router;
