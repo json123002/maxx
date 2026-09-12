@@ -12,12 +12,19 @@ import {
 import { api } from "../api/client";
 
 const ACTION_LABELS = {
-  login: "登录", logout: "登出", login_fail: "登录失败",
+  login: "登录", logout: "登出", login_fail: "登录失败", change_password: "修改密码",
   page_view: "打开页面",
   screener_run: "条件筛选", stock_view: "查看个股", analysis_view: "战法分析",
   f10_view: "查看F10", desk_view: "打开工作台", radar_view: "打开涨停雷达",
   history_view: "打开历史榜单", flow_view: "打开板块资金",
   watchlist_add: "加自选", watchlist_del: "删自选",
+  desk_stock_add: "工作台加股票", desk_stock_del: "工作台删股票",
+  desk_stock_order: "工作台排序", desk_stock_import: "自选导入工作台",
+  desk_star_add: "标重点关注", desk_star_del: "取消重点关注",
+  desk_group_add: "新建分组", desk_group_rename: "重命名分组",
+  desk_group_del: "删除分组",
+  desk_gitem_add: "分组加股票", desk_gitem_del: "分组删股票",
+  desk_gitem_order: "分组排序",
   admin_create_user: "新建用户", admin_update_user: "修改用户",
   admin_delete_user: "删除用户",
 };

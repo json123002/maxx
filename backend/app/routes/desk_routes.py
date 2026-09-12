@@ -303,7 +303,7 @@ def star_add(body: StockIn, request: Request, user=Depends(current_user)):
         raise HTTPException(400, "股票代码须为 6 位数字")
     conn = get_conn()
     in_pool = conn.execute(
-        "SELECT 1 FROM desk_stock WHERE user_id = ? AND code = ?",
+        "SELECT name FROM desk_stock WHERE user_id = ? AND code = ?",
         (user["id"], code)).fetchone()
     if not in_pool:
         raise HTTPException(400, "请先加入工作台，再标记重点关注")
@@ -312,7 +312,10 @@ def star_add(body: StockIn, request: Request, user=Depends(current_user)):
             "INSERT OR IGNORE INTO desk_star (user_id, code, created_at)"
             " VALUES (?, ?, ?)",
             (user["id"], code, datetime.now().isoformat(timespec="seconds")))
-    log_op(user, "desk_star_add", code, client_ip(request), user_agent(request))
+    # 详情带名称,日志页一眼可读(与 desk_stock_del 同口径)
+    log_op(user, "desk_star_add",
+           code + (" " + in_pool["name"] if in_pool["name"] else ""),
+           client_ip(request), user_agent(request))
     return {"ok": True, "code": code}
 
 
@@ -322,9 +325,14 @@ def star_remove(code: str, request: Request, user=Depends(current_user)):
     if not CODE_RE.match(code):
         raise HTTPException(400, "股票代码须为 6 位数字")
     with get_conn() as conn:
+        row = conn.execute(
+            "SELECT name FROM desk_stock WHERE user_id = ? AND code = ?",
+            (user["id"], code)).fetchone()
         conn.execute("DELETE FROM desk_star WHERE user_id = ? AND code = ?",
                      (user["id"], code))
-    log_op(user, "desk_star_del", code, client_ip(request), user_agent(request))
+    log_op(user, "desk_star_del",
+           code + (" " + row["name"] if row and row["name"] else ""),
+           client_ip(request), user_agent(request))
     return {"ok": True}
 
 
@@ -435,7 +443,7 @@ def group_item_add(gid: int, body: GroupItemIn, request: Request,
     if not CODE_RE.match(code):
         raise HTTPException(400, "股票代码须为 6 位数字")
     in_pool = get_conn().execute(
-        "SELECT 1 FROM desk_stock WHERE user_id = ? AND code = ?",
+        "SELECT name FROM desk_stock WHERE user_id = ? AND code = ?",
         (user["id"], code)).fetchone()
     if not in_pool:
         raise HTTPException(400, "请先加入工作台，再归入分组")
@@ -444,7 +452,10 @@ def group_item_add(gid: int, body: GroupItemIn, request: Request,
             "INSERT OR IGNORE INTO desk_group_item"
             " (group_id, user_id, code, created_at) VALUES (?, ?, ?, ?)",
             (gid, user["id"], code, datetime.now().isoformat(timespec="seconds")))
-    log_op(user, "desk_gitem_add", "%s %s" % (row["name"], code),
+    # 详情:组名 + 代码 + 名称,日志页一眼可读
+    log_op(user, "desk_gitem_add",
+           "「%s」%s%s" % (row["name"], code,
+                          " " + in_pool["name"] if in_pool["name"] else ""),
            client_ip(request), user_agent(request))
     return {"ok": True, "code": code}
 
@@ -457,11 +468,16 @@ def group_item_remove(gid: int, code: str, request: Request,
     if not CODE_RE.match(code):
         raise HTTPException(400, "股票代码须为 6 位数字")
     with get_conn() as conn:
+        stk = conn.execute(
+            "SELECT name FROM desk_stock WHERE user_id = ? AND code = ?",
+            (user["id"], code)).fetchone()
         conn.execute(
             "DELETE FROM desk_group_item WHERE group_id = ? AND user_id = ?"
             " AND code = ?",
             (gid, user["id"], code))
-    log_op(user, "desk_gitem_del", "%s %s" % (row["name"], code),
+    log_op(user, "desk_gitem_del",
+           "「%s」%s%s" % (row["name"], code,
+                          " " + stk["name"] if stk and stk["name"] else ""),
            client_ip(request), user_agent(request))
     return {"ok": True}
 
@@ -480,7 +496,7 @@ def group_item_order(gid: int, body: GroupOrderIn, request: Request,
             "UPDATE desk_group_item SET sort = ?"
             " WHERE group_id = ? AND user_id = ? AND code = ?",
             [(n - i, gid, user["id"], c) for i, c in enumerate(codes)])
-    log_op(user, "desk_gitem_order", "%s %d 只" % (row["name"], len(codes)),
+    log_op(user, "desk_gitem_order", "「%s」%d 只" % (row["name"], len(codes)),
            client_ip(request), user_agent(request))
     return {"ok": True, "count": len(codes)}
 
