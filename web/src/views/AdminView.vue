@@ -330,7 +330,7 @@ onMounted(loadUsers);
 </template>
 
 <style scoped>
-/* ===== 布局:无卡片盒,编辑排印风(与新版工作台一致) ===== */
+/* ===== 布局:无卡片盒,编辑排印风(与总览页一致) ===== */
 .adminWrap { padding: 12px 0 48px; }
 .blk { margin-top: 30px; }
 .blk:first-child { margin-top: 10px; }

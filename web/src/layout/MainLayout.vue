@@ -102,7 +102,7 @@ const pwdOpen = ref(false);
 // 菜单配置:新增功能页在这里加一项即可(adminOnly 仅管理员可见,rootOnly 仅隐藏 root 可见)
 // 带 children 的为一级分组;子项全被权限过滤掉时整组不显示
 const MENUS = [
-  { path: "/home", title: "工作台", icon: DashboardOutlined },
+  { path: "/home", title: "总览", icon: DashboardOutlined },
   { key: "grp-quote", title: "行情筛选", icon: FundViewOutlined, children: [
     { path: "/screener", title: "换手率筛选", icon: FundViewOutlined },
     { path: "/radar", title: "涨停雷达", icon: FireOutlined },

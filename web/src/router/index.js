@@ -8,7 +8,7 @@ const routes = [
     component: () => import("../layout/MainLayout.vue"),
     children: [
       { path: "", redirect: "/home" },
-      { path: "home", name: "home", component: () => import("../views/HomeView.vue"), meta: { title: "工作台" } },
+      { path: "home", name: "home", component: () => import("../views/HomeView.vue"), meta: { title: "总览" } },
       { path: "screener", name: "screener", component: () => import("../views/ScreenerView.vue"), meta: { title: "换手率筛选" } },
       { path: "admin", name: "admin", component: () => import("../views/AdminView.vue"), meta: { title: "用户管理", admin: true } },
       { path: "watchlist", name: "watchlist", component: () => import("../views/WatchlistView.vue"), meta: { title: "我的自选" } },
