@@ -7,12 +7,16 @@ import { message } from "ant-design-vue";
 // 本页专属重组件按需引入（同 AdminView,不进全局注册）
 import {
   Select as ASelect, SelectOption as ASelectOption, Table as ATable,
+  Modal as AModal,
 } from "ant-design-vue";
 import { api } from "../api/client";
 
 const ACTION_LABELS = {
   login: "登录", logout: "登出", login_fail: "登录失败",
+  page_view: "打开页面",
   screener_run: "条件筛选", stock_view: "查看个股", analysis_view: "战法分析",
+  f10_view: "查看F10", desk_view: "打开工作台", radar_view: "打开涨停雷达",
+  history_view: "打开历史榜单", flow_view: "打开板块资金",
   watchlist_add: "加自选", watchlist_del: "删自选",
   admin_create_user: "新建用户", admin_update_user: "修改用户",
   admin_delete_user: "删除用户",
@@ -58,6 +62,10 @@ async function load() {
 function onSearch() { page.value = 1; load(); }
 function onPage(p) { page.value = p; load(); }
 
+// 详情弹窗：展示完整记录（替代原展开行）
+const detailRec = ref(null);
+function showDetail(rec) { detailRec.value = rec; }
+
 onMounted(load);
 </script>
 
@@ -66,7 +74,7 @@ onMounted(load);
     <section class="blk">
       <div class="secHead">
         <span class="secName">操作日志</span>
-        <span class="secNote">共 {{ total }} 条 · 登录 / 筛选 / 自选 / 个股 / 用户管理操作</span>
+        <span class="secNote">共 {{ total }} 条 · 登录 / 页面打开 / 筛选 / 自选 / 个股 / 用户管理操作</span>
       </div>
 
       <!-- 过滤条件 -->
@@ -128,32 +136,42 @@ onMounted(load);
           <template v-else-if="column.key === 'ip'">
             <div class="ipCell">
               <span class="dimTxt">{{ record.ip || "—" }}</span>
-              <span v-if="record.region" class="regionTxt">{{ record.region }}</span>
+              <span class="regionTxt">{{ record.region || "—" }}</span>
+              <button class="detailBtn" @click="showDetail(record)">详情</button>
             </div>
           </template>
         </template>
-        <!-- 展开行：完整审计细节 -->
-        <template #expandedRowRender="{ record }">
-          <div class="expGrid">
-            <span class="expK">记录 ID</span><span class="expV">#{{ record.id }}</span>
-            <span class="expK">时间</span>
-            <span class="expV">{{ (record.ts || "").replace("T", " ") }}</span>
-            <span class="expK">用户</span>
-            <span class="expV">{{ record.username || "—" }}
-              <span class="dimTxt">(uid {{ record.user_id ?? "—" }})</span></span>
-            <span class="expK">动作</span>
-            <span class="expV">{{ actionLabel(record.action) }}
-              <span class="dimTxt">{{ record.action }}</span></span>
-            <span class="expK">详情</span>
-            <span class="expV detailFull">{{ record.detail || "—" }}</span>
-            <span class="expK">IP</span>
-            <span class="expV">{{ record.ip || "—" }}
-              <span v-if="record.region" class="regionTxt">{{ record.region }}</span></span>
-            <span class="expK">终端</span>
-            <span class="expV detailFull">{{ record.ua || "—（旧记录未采集）" }}</span>
-          </div>
-        </template>
       </a-table>
+
+      <!-- 详情弹窗：完整审计细节 -->
+      <a-modal
+        :open="!!detailRec"
+        title="记录详情"
+        :footer="null"
+        width="640px"
+        class="logModal"
+        @cancel="detailRec = null"
+      >
+        <div v-if="detailRec" class="expGrid">
+          <span class="expK">记录 ID</span><span class="expV">#{{ detailRec.id }}</span>
+          <span class="expK">时间</span>
+          <span class="expV">{{ (detailRec.ts || "").replace("T", " ") }}</span>
+          <span class="expK">用户</span>
+          <span class="expV">{{ detailRec.username || "—" }}
+            <span class="dimTxt">(uid {{ detailRec.user_id ?? "—" }})</span></span>
+          <span class="expK">动作</span>
+          <span class="expV">{{ actionLabel(detailRec.action) }}
+            <span class="dimTxt">{{ detailRec.action }}</span></span>
+          <span class="expK">详情</span>
+          <span class="expV detailFull">{{ detailRec.detail || "—" }}</span>
+          <span class="expK">IP</span>
+          <span class="expV">{{ detailRec.ip || "—" }}</span>
+          <span class="expK">归属地</span>
+          <span class="expV">{{ detailRec.region || "—" }}</span>
+          <span class="expK">终端</span>
+          <span class="expV detailFull">{{ detailRec.ua || "—（旧记录未采集）" }}</span>
+        </div>
+      </a-modal>
     </section>
   </div>
 </template>
@@ -200,19 +218,24 @@ onMounted(load);
 }
 .ipCell { display: flex; flex-direction: column; gap: 1px; }
 .regionTxt { font-size: 11px; color: var(--dim); }
+.detailBtn {
+  align-self: flex-start; background: none; border: none; padding: 0;
+  margin-top: 2px; font-size: 11px; font-family: inherit;
+  color: var(--accent); cursor: pointer; opacity: .85;
+}
+.detailBtn:hover { opacity: 1; text-decoration: underline; }
 
-/* ===== 展开行：审计细节网格 ===== */
+/* ===== 详情弹窗：审计细节网格 ===== */
 .expGrid {
-  display: grid; grid-template-columns: 72px 1fr; gap: 6px 14px;
-  padding: 6px 8px; font-size: 12.5px; max-width: 860px;
+  display: grid; grid-template-columns: 72px 1fr; gap: 8px 14px;
+  padding: 6px 2px; font-size: 12.5px;
 }
 .expK { color: var(--dim); white-space: nowrap; }
 .expV { color: var(--txt); font-family: var(--mono); word-break: break-all; }
 .detailFull { line-height: 1.7; }
-:deep(.ant-table-expanded-row > td) { background: var(--panel-2) !important; }
-:deep(.ant-table-row-expand-icon) {
-  background: transparent; border-color: var(--line); color: var(--txt);
-}
+:deep(.ant-modal-content), :deep(.ant-modal-header) { background: var(--panel); }
+:deep(.ant-modal-title) { background: transparent; color: var(--txt); }
+:deep(.ant-modal-close) { color: var(--dim); }
 
 /* ===== antd 主题适配(明暗双主题走令牌) ===== */
 :deep(.ant-input),

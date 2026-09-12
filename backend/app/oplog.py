@@ -1,8 +1,9 @@
 """用户操作埋点：服务端关键动作自动记录 + 前端行为主动上报（/api/track）。
 
 IP 归属地：查询日志时惰性解析并永久缓存进 ip_regions 表（成功才缓存，
-失败下次访问重试）。源为 ip-api.com 免费批量接口，仅 root 拉日志页时
-触发，调用量极小；解析失败不影响日志功能本身。
+失败下次访问重试）。源为太平洋网络 whois.pconline.com.cn 免费接口
+（境内可达，逐条 GET），仅 root 拉日志页时触发，调用量极小；
+解析失败不影响日志功能本身。
 """
 import ipaddress
 from datetime import datetime
@@ -62,24 +63,26 @@ def _is_public_ip(ip: str) -> bool:
                 or a.is_multicast or a.is_reserved or a.is_unspecified)
 
 
+# pconline addr 形如 "上海市长宁区 /普陀区电信ADSL"，运营商从末尾关键词提取
+_ISP_KW = ("电信", "联通", "移动", "铁通", "长城", "教育网")
+
+
 def _fmt_region(item: dict) -> str:
-    """ip-api 单条结果 -> 展示文案，如 '上海 · 电信' / '美国 加利福尼亚 · Cloudflare'。"""
-    region = (item.get("regionName") or "").strip()   # 省/州
+    """pconline 单条结果 -> 展示文案，如 '上海 · 电信' / '浙江杭州 · 联通'。"""
+    pro = (item.get("pro") or "").strip()      # 省
     city = (item.get("city") or "").strip()
-    loc = region if (not city or city == region) else region + city
-    country = (item.get("country") or "").strip()
+    loc = pro if (not city or city == pro) else pro + city
     if not loc:
-        loc = country
-    elif country and country != "中国":
-        loc = country + " " + loc
-    isp = (item.get("isp") or "").strip()
-    if isp and isp not in loc:
+        loc = (item.get("region") or "").strip()   # 区/县兜底
+    addr = (item.get("addr") or "").strip()
+    isp = next((k for k in _ISP_KW if k in addr), "")
+    if isp:
         loc = (loc + " · " + isp) if loc else isp
     return loc[:60]
 
 
 def enrich_regions(rows: list) -> None:
-    """就地给日志行补 region 字段：先查缓存表，缺失的公网 IP 批量查一次外网。
+    """就地给日志行补 region 字段：先查缓存表，缺失的公网 IP 逐条查一次外网。
 
     任何网络/解析失败都静默降级（region 留空），不影响日志查询。
     """
@@ -104,19 +107,24 @@ def enrich_regions(rows: list) -> None:
         region = {c["ip"]: c["region"] for c in cached}
         missing = [ip for ip in pub if ip not in region][:100]
         if missing:
-            resp = requests.post(
-                "http://ip-api.com/batch?lang=zh-CN",
-                json=[{"query": ip,
-                       "fields": "status,country,regionName,city,isp,query"}
-                      for ip in missing],
-                timeout=3)
             got = []
-            for item in resp.json():
-                if item.get("status") == "success":
-                    reg = _fmt_region(item)
-                    region[item["query"]] = reg
-                    got.append((item["query"], reg,
-                                datetime.now().isoformat(timespec="seconds")))
+            for ip in missing:
+                try:
+                    resp = requests.get(
+                        "https://whois.pconline.com.cn/ipJson.jsp",
+                        params={"ip": ip, "json": "true"}, timeout=3)
+                    resp.encoding = "gbk"   # 接口返回 GBK 编码
+                    item = resp.json()
+                except Exception:
+                    continue
+                if not isinstance(item, dict) or item.get("err"):
+                    continue
+                reg = _fmt_region(item)
+                if not reg:
+                    continue
+                region[ip] = reg
+                got.append((ip, reg,
+                            datetime.now().isoformat(timespec="seconds")))
             if got:
                 with conn:
                     conn.executemany(

@@ -119,6 +119,7 @@
     <footer class="disclaimer">
       <span>
         数据来自东方财富，页面内容仅为客观数据的整理与展示，不构成任何推荐或投资建议。
+        本站为个人技术研究工具，不提供证券投资咨询服务，不收取任何费用。
         市场有风险，决策需独立。
       </span>
       <span class="ver">v{{ version }}</span>

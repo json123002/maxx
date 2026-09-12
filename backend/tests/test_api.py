@@ -423,7 +423,7 @@ def test_op_logs(client):
 def test_track_records_real_ip_and_ua(client, monkeypatch):
     """反代场景：client.host 恒为回环地址，真实 IP 必须来自 X-Forwarded-For/X-Real-IP。"""
     monkeypatch.setattr(  # 测试不触网：归属地解析失败须静默降级
-        "app.oplog.requests.post",
+        "app.oplog.requests.get",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("offline")))
     ha = login(client, "admin", "admin123")
     client.post("/api/track",
@@ -441,16 +441,64 @@ def test_track_records_real_ip_and_ua(client, monkeypatch):
 
 def test_ip_region_format():
     from app.oplog import _fmt_region, _is_public_ip
-    assert _fmt_region({"country": "中国", "regionName": "上海",
-                        "city": "上海", "isp": "电信"}) == "上海 · 电信"
-    assert _fmt_region({"country": "中国", "regionName": "浙江",
-                        "city": "杭州", "isp": "阿里云"}) == "浙江杭州 · 阿里云"
-    assert _fmt_region({"country": "美国", "regionName": "California",
-                        "city": "", "isp": ""}) == "美国 California"
+    # pconline 返回 GBK JSON:{"ip","pro","city","region","addr","err"}
+    assert _fmt_region({"pro": "上海市", "city": "上海市", "region": "长宁区",
+                        "addr": "上海市长宁区 /普陀区电信ADSL"}) == "上海市 · 电信"
+    assert _fmt_region({"pro": "浙江省", "city": "杭州市", "region": "西湖区",
+                        "addr": "浙江省杭州市西湖区 联通"}) == "浙江省杭州市 · 联通"
+    # 省市为空时用 region 兜底；addr 提取不到运营商就不拼
+    assert _fmt_region({"pro": "", "city": "", "region": "未知",
+                        "addr": "本地局域网"}) == "未知"
     assert _is_public_ip("8.8.8.8") is True
     assert _is_public_ip("127.0.0.1") is False
     assert _is_public_ip("192.168.1.1") is False
     assert _is_public_ip("not-an-ip") is False
+
+
+def test_track_page_view(client):
+    """页面打开埋点已加入白名单；未知动作仍 400。"""
+    ha = login(client, "admin", "admin123")
+    assert client.post("/api/track", headers=ha,
+                       json={"action": "page_view", "detail": "总览"}
+                       ).status_code == 200
+    assert client.post("/api/track", headers=ha,
+                       json={"action": "rm_rf"}).status_code == 400
+
+
+def test_enrich_regions_pconline(client, monkeypatch):
+    """pconline 归属地：格式化 + 成功才缓存 + err/异常静默跳过。"""
+    from app import oplog
+
+    class _Resp:
+        encoding = None
+
+        def __init__(self, payload):
+            self._p = payload
+
+        def json(self):
+            return self._p
+
+    payload = {"ip": "8.8.8.8", "pro": "上海市", "city": "上海市",
+               "region": "长宁区", "addr": "上海市长宁区 电信", "err": ""}
+    calls = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append(params["ip"])
+        if params["ip"] == "9.9.9.9":
+            raise RuntimeError("offline")
+        return _Resp(payload)
+
+    monkeypatch.setattr(oplog.requests, "get", fake_get)
+    rows = [{"ip": "8.8.8.8"}, {"ip": "9.9.9.9"}, {"ip": "192.168.1.1"}]
+    oplog.enrich_regions(rows)
+    assert rows[0]["region"] == "上海市 · 电信"
+    assert rows[1]["region"] == ""            # 网络异常静默跳过
+    assert rows[2]["region"] == "内网/本机"
+    # 成功结果已写缓存：第二次查询不再触网
+    calls.clear()
+    rows2 = [{"ip": "8.8.8.8"}]
+    oplog.enrich_regions(rows2)
+    assert rows2[0]["region"] == "上海市 · 电信" and not calls
 
 
 # ===== 登录防爆破限流 =====

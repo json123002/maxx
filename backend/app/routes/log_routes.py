@@ -13,7 +13,7 @@ router = APIRouter(tags=["logs"])
 
 # 前端可上报的动作白名单（防刷库）；登录/自选/管理员操作等由服务端自行记录
 TRACK_ACTIONS = {"screener_run", "stock_view", "analysis_view", "history_view",
-                 "radar_view", "flow_view", "desk_view", "f10_view"}
+                 "radar_view", "flow_view", "desk_view", "f10_view", "page_view"}
 
 
 class TrackIn(BaseModel):

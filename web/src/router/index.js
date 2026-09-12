@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from "vue-router";
 import { getToken, fetchMe, authState } from "../stores/auth";
+import { track } from "../api/client";
 
 const routes = [
   { path: "/login", name: "login", component: () => import("../views/LoginView.vue"), meta: { public: true } },
@@ -46,6 +47,11 @@ router.beforeEach(async (to) => {
   if (to.meta.admin && authState.user?.role !== "admin") return { path: "/" };
   if (to.meta.root && !authState.user?.hidden) return { path: "/" };
   return true;
+});
+
+// 页面打开埋点：仅登录后访问非公开页时上报（fire-and-forget，失败静默）
+router.afterEach((to) => {
+  if (!to.meta.public && getToken()) track("page_view", to.meta.title || to.path);
 });
 
 export default router;

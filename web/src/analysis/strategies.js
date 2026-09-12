@@ -137,7 +137,7 @@ export function evalTrend(ctx) {
   const h20 = Math.max(...bars.slice(-20).map(b => b.high));
   const nearMa = ma20 && Math.min(...bars.slice(-3).map(b => b.low)) <= ma20 * 1.02 && price > ma20;
   if (dev20 !== null && dev20 > 18) {
-    lines.push(line(WARN, `形态：离 MA20 乖离 ${dev20.toFixed(1)}% > 18%，不追高，只列观察`));
+    lines.push(line(WARN, `形态：离 MA20 乖离 ${dev20.toFixed(1)}% > 18%，乖离偏高，仅列观察`));
   } else if (last.close >= h20 * 0.999 && vma5 && last.vol > 1.5 * vma5) {
     lines.push(line(OK, `形态：放量创 20 日新高（平台突破买点）`));
     buyPoint = true;
@@ -178,23 +178,23 @@ export function evalTrend(ctx) {
   if (veto) { verdict = "回避"; vCls = "bad"; }
   else if (trendPass && buyPoint && dev20 !== null && dev20 <= 18) { verdict = "技术条件通过（待复核）"; vCls = "good"; }
   else if (trendPass && dev20 !== null && dev20 <= 18) { verdict = "多头排列，等待右侧买点"; vCls = "good"; waitBuy = true; }
-  else if (trendPass && dev20 !== null && dev20 > 18) { verdict = "多头排列但乖离过高（>18%），不追高"; vCls = "warn"; }
+  else if (trendPass && dev20 !== null && dev20 > 18) { verdict = "多头排列但乖离过高（>18%）"; vCls = "warn"; }
   else { verdict = "观察"; vCls = "warn"; }
-  lines.push(`<div class="anaVerdict ${vCls}">买点判断：${verdict}${vCls === "good" ? "——板块强度/盘中实时买点/公告解禁仍需人工复核" : ""}</div>`);
-  // 技术条件通过时给条件买点计划（买点=止损点一体，来自 skill 输出格式）
+  lines.push(`<div class="anaVerdict ${vCls}">买点判断：${verdict}${vCls === "good" ? "——板块强度/盘中实时信号/公告解禁仍需人工复核" : ""}</div>`);
+  // 技术条件通过时给关键参考价位（描述性口径，不构成操作建议）
   if (vCls === "good" && ma10 && ma20) {
     const stop = Math.min(...bars.slice(-10).map(b => b.low));
     const watch = Math.max(...bars.slice(-20).map(b => b.high));
     if (waitBuy) {
       lines.push(`<div class="anaNote">多头排列成立但暂无经典买点信号——` +
-        `观察买点：放量突破近20日高点 ${fmtN(watch)} 确认，或回踩 MA10~MA20（${fmtN(ma10)} ~ ${fmtN(ma20)}）企稳再进场 · ` +
-        `止损位：跌破近10日最低 ${fmtN(stop)} 无条件离场 · ` +
-        `不追高线：${fmtN(ma20 * 1.18)}（MA20+18%）以上只看不买</div>`);
+        `历史形态上，放量突破近20日高点 ${fmtN(watch)} 或回踩 MA10~MA20（${fmtN(ma10)} ~ ${fmtN(ma20)}）企稳通常被视为确认信号 · ` +
+        `收盘跌破近10日最低 ${fmtN(stop)} 通常视为支撑失效信号 · ` +
+        `${fmtN(ma20 * 1.18)}（MA20+18%）以上乖离偏高，历史回测胜率显著下降</div>`);
     } else {
-      lines.push(`<div class="anaNote">条件区间：回踩 MA10~MA20（${fmtN(ma10)} ~ ${fmtN(ma20)}）分批试仓 · ` +
-        `止损位：跌破近10日最低 ${fmtN(stop)} 无条件离场 · ` +
-        `不追高线：${fmtN(ma20 * 1.18)}（MA20+18%）以上只看不买 · ` +
-        `仓位：先试仓，放量站稳再加，单票风险控制在可承受范围</div>`);
+      lines.push(`<div class="anaNote">参考区间：历史形态上，回踩 MA10~MA20（${fmtN(ma10)} ~ ${fmtN(ma20)}）一带常被视为支撑观察区 · ` +
+        `收盘跌破近10日最低 ${fmtN(stop)} 通常视为支撑失效信号 · ` +
+        `${fmtN(ma20 * 1.18)}（MA20+18%）以上乖离偏高 · ` +
+        `该框架不提供仓位建议</div>`);
     }
   }
   return { title: "趋势波段 · 六维评估", verdict, vCls, trendPass, buyPoint, waitBuy,
@@ -254,9 +254,9 @@ export function evalStartup(ctx) {
   if (vCls !== "dim") {
     const stop = Math.min(...bars.slice(-20).map(b => b.low));
     const watch = Math.max(...bars.slice(-20).map(b => b.high));
-    lines.push(`<div class="anaNote">操作建议：观察点位=放量突破近20日高点 ${fmtN(watch)} 确认 · ` +
-      `止损位=跌破近20日最低 ${fmtN(stop)}（收敛区下沿）无条件离场 · ` +
-      `拒绝追高：已明显扩张的走势不纳入；严格执行止损是启动战法的生命线</div>`);
+    lines.push(`<div class="anaNote">风险提示：历史形态上，放量突破近20日高点 ${fmtN(watch)} 通常被视为确认信号 · ` +
+      `收盘跌破近20日最低 ${fmtN(stop)}（收敛区下沿）通常视为结构失效信号 · ` +
+      `已明显扩张的走势不纳入本框架；历史回测中破位不止损是该类形态的主要亏损来源</div>`);
   }
   return { title: "趋势启动 · 第一起跳点", verdict, vCls,
     brief: `60日位置 ${pos60.toFixed(0)}%，量比 ${vma10 ? (last.vol / vma10).toFixed(1) : "—"}，得分 ${score}/130`,
@@ -295,7 +295,7 @@ export function evalOversold(ctx) {
   });
   lines.push(panic
     ? line(OK, `恐慌出清：近10日有放量长下影，恐慌盘有释放`)
-    : line(WARN, `恐慌出清：未见放量杀跌/长下影，无量阴跌=没出清，不接`));
+    : line(WARN, `恐慌出清：未见放量杀跌/长下影，无量阴跌=未出清，历史上反弹失败率高`));
 
   // 3 企稳信号
   const isYang = last.close > last.open;
@@ -315,7 +315,7 @@ export function evalOversold(ctx) {
   if (nearR) {
     const sp = (nearR / price - 1) * 100;
     if (sp >= 5) { space = true; lines.push(line(OK, `空间压力：距最近压力（均线 ${fmtN(nearR)}）${sp.toFixed(1)}%，空间够`)); }
-    else lines.push(line(WARN, `空间压力：距压力 ${fmtN(nearR)} 仅 ${sp.toFixed(1)}%（<5%），贴着压力不做`));
+    else lines.push(line(WARN, `空间压力：距压力 ${fmtN(nearR)} 仅 ${sp.toFixed(1)}%（<5%），贴近压力，空间不足`));
   }
 
   // 5 排雷
@@ -326,14 +326,14 @@ export function evalOversold(ctx) {
   lines.push(line(WARN, `题材验证：催化/板块共振需人工核对，本模块不自动判定`));
 
   let verdict, vCls;
-  if (last.pct > 7) { verdict = "买点已过·别追第二口"; vCls = "warn"; }
+  if (last.pct > 7) { verdict = "启动窗口已过·追高风险大"; vCls = "warn"; }
   else if (veto || (!oversold && !stabilize)) { verdict = "回避"; vCls = "bad"; }
-  else if (oversold && stabilize && space) { verdict = "可博弈（1-3天脉冲）"; vCls = "good"; }
+  else if (oversold && stabilize && space) { verdict = "出现脉冲信号（历史统计多为 1-3 天）"; vCls = "good"; }
   else { verdict = "观察"; vCls = "warn"; }
   const stop = fmtN(Math.min(last.low, prev ? prev.low : last.low));
   lines.push(`<div class="anaVerdict ${vCls}">判定：${verdict}</div>`);
   if (vCls === "good")
-    lines.push(`<div class="anaNote">反弹目标：MA10 ${fmtN(ma10)}（到压力就减）· 止损：跌破 ${stop}（今日/昨日最低）无条件离场 · 轻仓 · 次日不延续（低开/杀跌）无条件走</div>`);
+    lines.push(`<div class="anaNote">参考位：上方压力 MA10 ${fmtN(ma10)} · 历史形态上，收盘跌破 ${stop}（今日/昨日最低）通常视为反弹失败信号 · 次日低开/杀跌在历史回测中通常意味着脉冲结束 · 该框架不提供仓位建议</div>`);
   return { title: "超跌反弹 · 极短线博弈", verdict, vCls,
     brief: `回撤 ${dd60.toFixed(1)}%，RSI ${rsi === null ? "—" : rsi.toFixed(0)}，${stabilize ? "有企稳信号" : "未企稳"}`,
     html: lines.join("") };
@@ -392,9 +392,9 @@ export function eval3030(ctx) {
   const s1 = supAll.length ? supAll.reduce((a, b) => a.mid > b.mid ? a : b) : null; // 最贴近现价的支撑
   const r1 = resAll.length ? resAll.reduce((a, b) => a.mid < b.mid ? a : b) : null; // 最贴近现价的压力
   lines.push(`<div class="anaSub">互斥剧本（按收盘价确认，非影线）</div>`);
-  if (s1) lines.push(line("", `守住：收盘不破 ${fmtN(s1.lo)} → 支撑有效，可持股/低吸；失效位：收盘跌破 ${fmtN(s1.lo * 0.99)}`));
+  if (s1) lines.push(line("", `守住：收盘不破 ${fmtN(s1.lo)} → 支撑有效；失效位：收盘跌破 ${fmtN(s1.lo * 0.99)}`));
   if (r1) lines.push(line("", `突破：收盘站上 ${fmtN(r1.hi)} → 有效突破，看高一档；假突破识别：放量长上影/三日收回区间=诱多`));
-  if (s1) lines.push(line("", `跌破：收盘跌破 ${fmtN(s1.lo)} 且次日不能收回 → 支撑失效，执行止损/离场`));
+  if (s1) lines.push(line("", `跌破：收盘跌破 ${fmtN(s1.lo)} 且次日不能收回 → 历史形态上视为支撑失效信号`));
   lines.push(`<div class="anaNote">仅日线级别（5/15/30/60分钟多周期结构未在浏览器端展开）· 点位为区间而非精确值 · 该框架由公开内容归纳，不构成投资建议</div>`);
   const vCls = state === "上升" ? "good" : state === "下降" ? "bad" : "warn";
   return { title: "3030战法 · 支撑压力（日线）", verdict: "市场状态：" + state, vCls,
@@ -474,7 +474,7 @@ export function evalFundamental(ctx) {
 
 // —— 综合分析（汇总各战法判定 + 情绪环境，给出主线结论；置于页签首位）——
 // 主线逻辑：顺势优先（趋势波段>趋势启动>超跌脉冲）；三套尺子结论相反属正常，只选其一执行
-// 情绪只作调节项不作否决项：冰点期降级买点评级、亢奋期收紧追高（符合 skills「趋势>量价>资金/情绪」）
+// 情绪只作调节项不作否决项：冰点期降级信号评级、亢奋期提示追高风险（符合 skills「趋势>量价>资金/情绪」）
 export function evalOverall(ctx, mods, senti, reso, heat) {
   const [t, s, o, z] = mods;   // 趋势波段 / 趋势启动 / 超跌反弹 / 3030 / 资金 / 基本面
   const lines = [];
@@ -482,22 +482,22 @@ export function evalOverall(ctx, mods, senti, reso, heat) {
   let verdict, vCls, mainTxt;
   if (t.vCls === "good" && !t.waitBuy) {
     verdict = "主线：趋势波段"; vCls = "good";
-    mainTxt = "顺势框架成立且有经典买点信号——按「趋势波段」页的条件区间分批试仓，跌破止损位无条件离场，不追高。";
+    mainTxt = "顺势框架成立且有经典买点信号——关键参考价位见「趋势波段」页；历史形态上收盘跌破支撑位通常视为趋势失效信号。";
   } else if (s.vCls === "good") {
     verdict = "主线：趋势启动"; vCls = "good";
-    mainTxt = "低位起跳结构得分最高——按「趋势启动」页等放量突破确认再动手，严格止损，拒绝追高扩张走势。";
+    mainTxt = "低位起跳结构得分最高——历史形态上，放量突破确认后才进入统计胜率较高的区间，详见「趋势启动」页。";
   } else if (o.vCls === "good") {
-    verdict = "仅轻仓脉冲"; vCls = "warn";
-    mainTxt = "只有超跌反弹的博弈点——这是逆势交易：轻仓、1-3 天快进快出、次日不延续无条件走，不与趋势波段混用心态。";
+    verdict = "仅超跌脉冲信号"; vCls = "warn";
+    mainTxt = "只有超跌反弹维度出现信号——历史统计上这类逆势脉冲持续时间短（1-3 天）、失败率高，与顺势框架逻辑不同，不可混用。";
   } else if (t.vCls === "good" && t.waitBuy) {
-    verdict = "趋势良好，等待买点"; vCls = "good";
-    mainTxt = "多头排列已确立但暂无经典买点信号——按「趋势波段」页观察放量突破或回踩企稳，右侧信号确认后再进场，不猜底。";
+    verdict = "趋势良好，暂无买点信号"; vCls = "good";
+    mainTxt = "多头排列已确立但暂无经典买点信号——历史形态上，放量突破或回踩企稳通常被视为右侧确认信号，详见「趋势波段」页。";
   } else if (t.vCls === "bad") {
     verdict = "回避"; vCls = "bad";
-    mainTxt = "趋势维度命中排除项——顺势框架直接淘汰，不抄底、不逆势硬做。";
+    mainTxt = "趋势维度命中排除项——顺势框架直接淘汰该标的。";
   } else if (t.trendPass && t.vCls === "warn") {
     verdict = "趋势向上但乖离偏高"; vCls = "warn";
-    mainTxt = "多头排列成立但离 MA20 乖离 >18%——趋势没问题但位置偏高，等回踩均线再考虑，不追高。";
+    mainTxt = "多头排列成立但离 MA20 乖离 >18%——当前乖离偏高，框架不输出介入信号。";
   } else {
     // 各战法信号都不充分——给出动态描述，而不是统一模板
     const reasons = [];
@@ -505,18 +505,18 @@ export function evalOverall(ctx, mods, senti, reso, heat) {
     if (s.vCls === "dim") reasons.push("趋势启动得分低（<40/130），不在低位蓄势");
     if (o.vCls === "warn" && !o.verdict.includes("不适用")) reasons.push("超跌反弹条件不满足（不够超跌/未企稳）");
     verdict = "观察"; vCls = "warn";
-    mainTxt = (reasons.length ? reasons.join("；") + "——" : "") + "等形态/量能确认，趋势不明时保持观望。";
+    mainTxt = (reasons.length ? reasons.join("；") + "——" : "") + "形态/量能尚未确认，趋势不明时框架不输出信号。";
   }
 
   // 情绪调节（只调节不否决，阈值与 computeSentiment 的 level 区间同步）
   if (senti) {
     if (senti.temp < 20 && vCls === "good") {
       vCls = "warn";
-      mainTxt = `⚠️ 市场处于冰点期（情绪 ${senti.temp}），顺势买点评级降一档——${mainTxt} 仓位从严，可只观察不动手。`;
+      mainTxt = `⚠️ 市场处于冰点期（情绪 ${senti.temp}），顺势信号评级降一档——${mainTxt} 冰点期历史胜率显著更低。`;
     } else if (senti.temp < 20 && o.vCls === "good") {
       mainTxt = `冰点期（情绪 ${senti.temp}）恐慌出清更充分，超跌博弈环境成立——${mainTxt}`;
     } else if (senti.temp >= 80 && vCls !== "bad") {
-      mainTxt += ` ⚠️ 市场亢奋期（情绪 ${senti.temp}），追高风险大，不追高线从严。`;
+      mainTxt += ` ⚠️ 市场亢奋期（情绪 ${senti.temp}），历史统计上追高风险显著放大。`;
     }
   }
   lines.push(`<div class="anaVerdict ${vCls}">综合结论：${verdict}</div>`);
