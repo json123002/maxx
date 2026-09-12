@@ -10,7 +10,6 @@ history 收盘序列（无炸板维度、窗口受落库天数限制）。
 """
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 
 from fastapi import APIRouter, Depends
 
@@ -169,13 +168,10 @@ def radar_1to2(user=Depends(current_user)):
         return {"date": dates[0] if dates else "", "rows": [], "rules": RULES,
                 "note": "历史数据不足两天，每交易日 15:06 收盘落库后再看"}
     t0, t1 = dates  # t0=昨日（首板日），t1=前日
-    # t0 == 今天 = 收盘落库后的复盘视角:竞价/额比衡量的是"次日早晨",
-    # 复盘时它们是首板当天已发生的旧值,降级为待确认、不参与否决;
-    # 下个交易日早盘快照刷新后自动恢复实盘口径
-    review = datetime.now().date().isoformat() == t0
 
     yd = conn.execute(
-        "SELECT h.code, h.name, h.industry, h.market, h.f6 AS y_amt"
+        "SELECT h.code, h.name, h.industry, h.market, h.f6 AS y_amt,"
+        " h.f2 AS y_close"
         " FROM history h"
         " WHERE h.trade_date = ? AND h.limit_up = 1 AND h.name NOT LIKE '%ST%'",
         (t0,),
@@ -188,6 +184,14 @@ def radar_1to2(user=Depends(current_user)):
     marks = ",".join("?" * len(codes))
     today = {r["code"]: r for r in conn.execute(
         "SELECT * FROM latest WHERE code IN (" + marks + ")", codes).fetchall()}
+
+    # 复盘/实盘口径由快照数据自证：快照 f18(昨收) == t0 收盘 ⇒ 快照已推进到
+    # t0 之后的交易日（实盘）；否则快照仍是首板日当天数据（收盘复盘/周末/
+    # 节假日/盘前），竞价/额比是旧值，降级为待确认、不参与否决，
+    # 下个交易日早盘快照刷新后自动恢复实盘口径
+    t0_close = {y["code"]: y["y_close"] for y in yd}
+    review = not any(t["f18"] is not None and t["f18"] == t0_close.get(c)
+                     for c, t in today.items())
 
     # 候选股日K并发预取（缓存命中时只是本地查询，首次约每票一次 HTTP）
     bars_map = {}

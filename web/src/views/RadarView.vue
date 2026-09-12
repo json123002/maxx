@@ -13,7 +13,7 @@ const rows = ref([]);
 const stat = ref(null);
 const note = ref("");
 const rules = ref({});
-const review = ref(false); // 收盘落库后的复盘视角(竞价/额比为今日实际值)
+const review = ref(false); // 快照仍停留在首板日的复盘视角(竞价/额比为首板当日旧值)
 const loading = ref(false);
 const expanded = ref(""); // 展开「判定理由」的股票代码
 
@@ -167,7 +167,7 @@ onMounted(load);
       </div>
 
       <p class="note">
-        <template v-if="review">今日已收盘（复盘视角）：显示今日首板；竞价涨幅/额比是首板当日的旧值，不计入判定（标 ~），下个交易日早盘恢复实盘口径。<br /></template>
+        <template v-if="review">复盘视角（快照仍为首板日数据：收盘后/周末/节假日/盘前）：竞价涨幅/额比是首板当日的旧值，不计入判定（标 ~），下个交易日早盘快照刷新后恢复实盘口径。<br /></template>
         粗筛层不含：竞价金额占流通比、上板时间、分时均线结构——点名称进个股详情做终检。
         打板是极高风险的确定性交易，不符合条件一票否决；本页仅作客观数据筛选，不构成投资建议。
       </p>

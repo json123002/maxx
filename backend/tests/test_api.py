@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app import config, db, kline, scheduler  # noqa: E402
 from app.fetcher import limit_flags  # noqa: E402
 from app.main import app  # noqa: E402
-from app.routes import radar_routes as rr  # noqa: E402
 from app.routes import watchlist_routes as wr  # noqa: E402
 from app.routes.quote_routes import build_filter_sql  # noqa: E402
 
@@ -533,33 +532,8 @@ def _hist(date, code, name, f2, lu, ld=0, f6=None):
     conn.commit()
 
 
-def _pin_radar_today(monkeypatch, iso):
-    """把雷达路由的"今天"钉成指定日期,与真实跑测日期解耦。
-
-    radar_routes 以 `from datetime import datetime` 引入,替换其模块级
-    datetime 即可;只需支持 now().date().isoformat() 调用链。
-    """
-    class _FakeDate:
-        @staticmethod
-        def isoformat():
-            return iso
-
-    class _FakeNow:
-        @staticmethod
-        def date():
-            return _FakeDate
-
-    class _FakeDatetime:
-        @staticmethod
-        def now():
-            return _FakeNow
-
-    monkeypatch.setattr(rr, "datetime", _FakeDatetime)
-
-
 def test_radar_1to2(client, monkeypatch):
     h = login(client, "admin", "admin123")
-    _pin_radar_today(monkeypatch, "2026-09-11")  # t0=09-12 ≠ 今天 → 实盘口径
     monkeypatch.setattr(kline, "get_bars",
                         lambda code, days=250: [])  # 无日K → 退化 history 口径
     # 基因序列:600005 在 09-08/09-09 两连板后 09-10/09-11 连续跌停 = A杀一次
@@ -578,6 +552,7 @@ def test_radar_1to2(client, monkeypatch):
     _hist("2026-09-12", "300001", "测试科技", 19.8, 1, f6=6e8)
     _hist("2026-09-12", "000001", "ST测试", 5.25, 1, f6=2e8)
     # 今日快照:600001 六维全好(高开4.3% 换手15 额比1.2 主力2亿 突破前高10.0);
+    # f18(昨收) == t0 收盘 ⇒ 快照已推进到次日,实盘口径;
     # 600005 缺 f18 → 用昨收兜底,基因 A杀 → 放弃
     db.replace_latest([
         _row("600001", "测试钢铁", "钢铁", "沪主板", 11.5, 10.05,
@@ -606,21 +581,21 @@ def test_radar_1to2(client, monkeypatch):
     assert b["kill_a"] == 1 and b["max_streak"] == 2
     assert d["stat"] == {"候选": 1, "观察": 0, "放弃": 1}  # 统计只算首板
     assert d["rules"]["open"].startswith("高开 3~6%")  # 阈值口径随响应下发
-    assert d["review"] is False                        # t0 是"明天",实盘口径
+    assert d["review"] is False                        # 快照 f18 == t0 收盘 → 实盘口径
 
 
 def test_radar_review_mode(client, monkeypatch):
-    """复盘视角(首板日 == 今天):竞价/额比降级为待确认,不参与否决。"""
+    """复盘视角(快照仍是首板日数据:收盘后/周末/节假日/盘前):
+    竞价/额比降级为待确认,不参与否决。"""
     h = login(client, "admin", "admin123")
-    # 把"今天"钉在 09-12(t0 必然 == 今天 → 复盘视角,与真实跑测日期解耦)
-    _pin_radar_today(monkeypatch, "2026-09-12")
     monkeypatch.setattr(kline, "get_bars", lambda code, days=250: [])
-    # 600006:09-11 未涨停、09-12 首板;竞价 +1%(实盘口径 bad)→ 复盘应降级 warn
+    # 600006:09-11 未涨停、09-12 首板;快照 f18=9.2(t1 收盘)≠ t0 收盘
+    # ⇒ 快照未推进到次日 → 复盘口径,竞价/额比降级 warn
     _hist("2026-09-11", "600006", "复盘股", 9.2, 0, f6=4e8)
     _hist("2026-09-12", "600006", "复盘股", 10.12, 1, f6=5e8)
     db.replace_latest([
         _row("600006", "复盘股", "钢铁", "沪主板", 11.0, 8.7,
-             f350=11.11, f351=9.1, f6=6e8, f8=15.0, f17=10.3, f18=10.12,
+             f350=11.11, f351=9.1, f6=6e8, f8=15.0, f17=10.3, f18=9.2,
              f62=2e8, f21=60e8),
     ], "实时行情")
     d = client.get("/api/radar/1to2", headers=h).json()
@@ -681,7 +656,6 @@ def test_radar_board_streak_with_history_gap(client, monkeypatch):
     """history 断档(09-09~09-11 未落库)时,连板数以日K为准:
     600009 实际昨日(09-11)也涨停 → board=2 列末;600010 真首板 → board=1。"""
     h = login(client, "admin", "admin123")
-    _pin_radar_today(monkeypatch, "2026-09-11")  # t0=09-12 ≠ 今天 → 实盘口径
     fill = [_bar("2026-08-%02d" % n, 9.0, 0.5) for n in range(1, 20)]
     bars = {
         # 09-11 涨停(pct 10.0):history 没落库这天,旧口径会误判首板
