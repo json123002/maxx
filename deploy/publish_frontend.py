@@ -1,4 +1,4 @@
-"""仅发布静态前端。密码从环境或本地遮蔽输入框读取，不落盘。"""
+"""仅发布静态前端。使用 maxx 账号 + 本机 ~/.ssh/id_ed25519 密钥登录（免密码）。"""
 import hashlib
 import os
 from pathlib import Path
@@ -9,32 +9,21 @@ import paramiko
 
 def main():
     host = os.environ.get('TS_HOST', '47.94.235.93')
-    user = os.environ.get('TS_USER', 'root')
+    user = os.environ.get('TS_USER', 'maxx')
+    key = os.environ.get('TS_KEY', str(Path.home() / '.ssh' / 'id_ed25519'))
+    if not Path(key).exists():
+        raise SystemExit(f'缺少 SSH 私钥 {key}，拒绝发布')
     remote = '/home/maxx/turnover-screener/frontend'
     local = Path(__file__).resolve().parents[1] / 'frontend'
     index = (local / 'index.html').read_bytes()
-    password = os.environ.get('TS_PASSWORD')
-    if not password:
-        import tkinter as tk
-        from tkinter import simpledialog
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes('-topmost', True)
-        password = simpledialog.askstring('发布前端 · SSH 验证',
-            f'服务器：{user}@{host}\n请输入 SSH 密码（仅本次使用，不保存）：',
-            show='*', parent=root)
-        root.destroy()
-        if not password:
-            raise SystemExit('已取消发布，线上未变更')
     ssh = paramiko.SSHClient()
     ssh.load_system_host_keys()
     # 与项目现有发布脚本使用相同的首次主机连接策略。
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        ssh.connect(host, username=user, password=password, timeout=20,
+        ssh.connect(host, username=user, key_filename=key, timeout=20,
                     allow_agent=False, look_for_keys=False)
         ssh.get_transport().set_keepalive(10)
-        password = None
         print('SSH connected', flush=True)
         with ssh.open_sftp() as sftp:
             old = sftp.open(remote + '/index.html', 'rb').read()

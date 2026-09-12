@@ -59,6 +59,9 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
+      - name: Stamp version (0.1.<run_number>)
+        run: cd web && pnpm version "0.1.${GITHUB_RUN_NUMBER}" --no-git-tag-version
+
       - run: cd web && pnpm install --frozen-lockfile && pnpm test && pnpm build
 
       - name: Package release

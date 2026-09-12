@@ -6,6 +6,10 @@
 步骤：装 python3.11 -> 上传代码到 /home/maxx/turnover-screener -> 建 venv 装依赖
 -> 配置 systemd -> 切换 nginx 到前端目录+反代 -> 重启验证。
 首次部署后：http://47.94.235.93/  账号 admin / admin123（请立即改密）。
+
+注意：本脚本是全新服务器的一次性初始化工具，需要 root + 密码登录。
+现有服务器已完成 SSH 加固（禁用 root/密码登录），日常部署请用
+GitHub Actions Deploy 或 publish_frontend.py（maxx + 密钥）。
 """
 import os
 import posixpath
