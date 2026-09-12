@@ -12,6 +12,7 @@ const routes = [
       { path: "screener", name: "screener", component: () => import("../views/ScreenerView.vue"), meta: { title: "换手率筛选" } },
       { path: "admin", name: "admin", component: () => import("../views/AdminView.vue"), meta: { title: "用户管理", admin: true } },
       { path: "watchlist", name: "watchlist", component: () => import("../views/WatchlistView.vue"), meta: { title: "我的自选" } },
+      { path: "desk", name: "desk", component: () => import("../views/MyDeskView.vue"), meta: { title: "我的工作台" } },
       { path: "history", name: "history", component: () => import("../views/HistoryView.vue"), meta: { title: "历史榜单" } },
       { path: "radar", name: "radar", component: () => import("../views/RadarView.vue"), meta: { title: "涨停雷达" } },
       { path: "flow", name: "flow", component: () => import("../views/CapitalFlowView.vue"), meta: { title: "板块资金" } },

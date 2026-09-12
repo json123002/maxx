@@ -110,6 +110,7 @@ const MENUS = [
     { path: "/history", title: "历史榜单", icon: HistoryOutlined },
   ] },
   { path: "/watchlist", title: "我的自选", icon: StarOutlined },
+  { path: "/desk", title: "我的工作台", icon: FundViewOutlined },
   { key: "grp-sys", title: "系统管理", icon: SettingOutlined, children: [
     { path: "/admin", title: "用户管理", icon: TeamOutlined, adminOnly: true },
     { path: "/logs", title: "日志", icon: FileTextOutlined, rootOnly: true },

@@ -100,6 +100,38 @@ def init_db() -> None:
             PRIMARY KEY (user_id, code)
         );
 
+        CREATE TABLE IF NOT EXISTS desk_star (
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            code       TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, code)
+        );
+
+        CREATE TABLE IF NOT EXISTS desk_stock (
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            code       TEXT NOT NULL,
+            name       TEXT,
+            created_at TEXT NOT NULL,
+            sort       REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, code)
+        );
+
+        CREATE TABLE IF NOT EXISTS desk_group (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name       TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS desk_group_item (
+            group_id   INTEGER NOT NULL REFERENCES desk_group(id) ON DELETE CASCADE,
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            code       TEXT NOT NULL,
+            sort       REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (group_id, code)
+        );
+
         CREATE TABLE IF NOT EXISTS op_logs (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             ts         TEXT NOT NULL,

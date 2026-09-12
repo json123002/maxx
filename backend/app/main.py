@@ -8,8 +8,8 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import config, db, scheduler
-from .routes import (admin_routes, auth_routes, log_routes, quote_routes,
-                     radar_routes, watchlist_routes)
+from .routes import (admin_routes, auth_routes, desk_routes, log_routes,
+                     quote_routes, radar_routes, watchlist_routes)
 from .security import hash_password
 
 logging.basicConfig(level=logging.INFO,
@@ -33,6 +33,7 @@ app.include_router(auth_routes.router)
 app.include_router(admin_routes.router)
 app.include_router(quote_routes.router)
 app.include_router(watchlist_routes.router)
+app.include_router(desk_routes.router)
 app.include_router(radar_routes.router)
 app.include_router(log_routes.router)
 
