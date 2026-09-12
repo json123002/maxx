@@ -3,7 +3,7 @@
     cd web && npm run build     # 先构建前端(Vue 产物输出到 frontend/)
     python deploy/deploy.py
 
-步骤：装 python3.11 -> 上传代码到 /opt/turnover-screener -> 建 venv 装依赖
+步骤：装 python3.11 -> 上传代码到 /home/maxx/turnover-screener -> 建 venv 装依赖
 -> 配置 systemd -> 切换 nginx 到前端目录+反代 -> 重启验证。
 首次部署后：http://47.94.235.93/  账号 admin / admin123（请立即改密）。
 """
@@ -26,7 +26,7 @@ ROOT_PASSWORD = os.environ.get("TS_ROOT_PASSWORD", "")
 
 ROOT = os.path.dirname(os.path.abspath(__file__))          # deploy/
 LOCAL = os.path.dirname(ROOT)                              # maxx/
-REMOTE = "/opt/turnover-screener"
+REMOTE = "/home/maxx/turnover-screener"
 
 PIP_MIRROR = "https://mirrors.aliyun.com/pypi/simple/"
 

@@ -10,7 +10,7 @@ import paramiko
 def main():
     host = os.environ.get('TS_HOST', '47.94.235.93')
     user = os.environ.get('TS_USER', 'root')
-    remote = '/opt/turnover-screener/frontend'
+    remote = '/home/maxx/turnover-screener/frontend'
     local = Path(__file__).resolve().parents[1] / 'frontend'
     index = (local / 'index.html').read_bytes()
     password = os.environ.get('TS_PASSWORD')

@@ -4,7 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/turnover-screener/backend
+User=maxx
+WorkingDirectory=/home/maxx/turnover-screener/backend
 Environment=TZ=Asia/Shanghai
 # 敏感配置(隐藏 root 密码 TS_ROOT_PASSWORD 等)由该文件注入,文件不进 git,
 # 由 deploy.py 部署时按本机环境变量写入(权限 600);不存在时忽略(-前缀)
@@ -13,7 +14,7 @@ EnvironmentFile=-/etc/turnover-screener.env
 Environment=TS_ADMIN_PASSWORD=admin123
 # 抓数间隔（分钟）
 Environment=TS_FETCH_INTERVAL_MIN=3
-ExecStart=/opt/turnover-screener/backend/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+ExecStart=/home/maxx/turnover-screener/backend/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=3
 # 内存保护：异常泄漏时自动重启而不是拖垮整机

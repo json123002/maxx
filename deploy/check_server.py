@@ -18,9 +18,9 @@ c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 c.connect(HOST, username=USER, password=PASSWORD, timeout=20)
 
 DB_CHECK = (
-    "/opt/turnover-screener/backend/venv/bin/python -c \""
+    "/home/maxx/turnover-screener/backend/venv/bin/python -c \""
     "import sqlite3;"
-    "db=sqlite3.connect('/opt/turnover-screener/backend/data/screener.db');"
+    "db=sqlite3.connect('/home/maxx/turnover-screener/backend/data/screener.db');"
     "print('latest rows:', db.execute('SELECT COUNT(*) FROM latest').fetchone()[0]);"
     "print('users:', db.execute('SELECT username,role,enabled FROM users').fetchall());"
     "print('meta:', db.execute('SELECT fetched_at,source,total,ok FROM snapshot_meta').fetchone())"

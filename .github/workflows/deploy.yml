@@ -23,8 +23,8 @@ permissions:
 
 env:
   HOST: 47.94.235.93
-  USER: root
-  REMOTE: /opt/turnover-screener
+  USER: maxx
+  REMOTE: /home/maxx/turnover-screener
   PIP_MIRROR: https://mirrors.aliyun.com/pypi/simple/
 
 jobs:
@@ -80,32 +80,32 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key "$USER@$HOST" "TS_TARGET='$TARGET' PIP_MIRROR='$PIP_MIRROR' bash -s" << 'EOF'
           set -e
-          cd /opt/turnover-screener
+          cd /home/maxx/turnover-screener
 
           echo "== backup current frontend =="
           rm -rf frontend.bak && cp -a frontend frontend.bak
 
           echo "== extract new release =="
-          tar xzf /tmp/ts-release.tgz -C /opt/turnover-screener
+          tar xzf /tmp/ts-release.tgz -C /home/maxx/turnover-screener
           rm -f /tmp/ts-release.tgz
 
           if [ "$TS_TARGET" = "all" ]; then
             echo "== backend deps + restart =="
-            cd /opt/turnover-screener/backend
+            cd /home/maxx/turnover-screener/backend
             [ -d venv ] || python3.11 -m venv venv
             venv/bin/pip install -q -r requirements.txt -i "$PIP_MIRROR"
-            systemctl restart turnover-api
+            sudo systemctl restart turnover-api
             sleep 3
             curl -sf http://127.0.0.1:8000/api/health
             echo
 
             echo "== sync nginx conf (rollback on invalid) =="
-            cp /etc/nginx/conf.d/turnover.conf /tmp/turnover.conf.bak
-            cp /opt/turnover-screener/deploy/nginx.conf /etc/nginx/conf.d/turnover.conf
-            if nginx -t; then
-              systemctl reload nginx
+            sudo cp /etc/nginx/conf.d/turnover.conf /tmp/turnover.conf.bak
+            sudo cp /home/maxx/turnover-screener/deploy/nginx.conf /etc/nginx/conf.d/turnover.conf
+            if sudo nginx -t; then
+              sudo systemctl reload nginx
             else
-              cp /tmp/turnover.conf.bak /etc/nginx/conf.d/turnover.conf
+              sudo cp /tmp/turnover.conf.bak /etc/nginx/conf.d/turnover.conf
               echo "WARN: nginx conf invalid, rolled back"
             fi
           fi
