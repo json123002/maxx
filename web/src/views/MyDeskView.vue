@@ -103,6 +103,15 @@ const toggleGroup = (k) => collapsed.has(k) ? collapsed.delete(k) : collapsed.ad
 
 const starRows = computed(() => rows.value.filter((r) => stars.value.has(r.f12)));
 
+// 已归入自定义分组的股票:「我的自选」只展示未分组的,同一只股票不与分组重复出现
+const groupedCodes = computed(() => {
+  const s = new Set();
+  for (const g of groups.value) for (const c of g.codes) s.add(c);
+  return s;
+});
+const poolRows = computed(() =>
+  rows.value.filter((r) => !groupedCodes.value.has(r.f12)));
+
 /* ---------- 视图状态:顶部页签 + 选中股票 ---------- */
 // monitor=实时监控(不依赖个股) fund=盘口资金 basic=基本分析
 const tab = ref("monitor");
@@ -178,6 +187,7 @@ function onInput() {
 
 function onKey(e) {
   if (e.key === "Escape") {
+    addMenu.value = null;
     dropOpen.value = false;
     return;
   }
@@ -192,7 +202,7 @@ function onKey(e) {
     scrollActive();
   } else if (e.key === "Enter") {
     const r = results.value[active.value];
-    if (r && !r.added) add(r);
+    if (r && !r.added) add(r, null);
   }
 }
 
@@ -214,14 +224,14 @@ function hl(text) {
   ].filter((s) => s.t);
 }
 
-async function add(r) {
+async function add(r, gid) {
   try {
     await addStock(r.f12);
-    // 目标是自定义分组时,同一步归入该组(默认只进「我的自选」池)
-    const g = addTarget.value === "all"
-      ? null : groups.value.find((x) => x.id === addTarget.value);
+    // 指定分组时同一步归入该组;不指定则只进「我的自选」(未分组池)
+    const g = gid ? groups.value.find((x) => x.id === gid) : null;
     if (g) await addGroupItem(g.id, r.f12);
     message.success(g ? `已添加 ${r.f14} 到「${g.name}」` : "已添加 " + r.f14 + " " + r.f12);
+    addMenu.value = null;
     kw.value = "";
     results.value = [];
     dropOpen.value = false;
@@ -235,18 +245,22 @@ async function add(r) {
 
 const showDrop = computed(() => dropOpen.value && (results.value.length || searching.value));
 
-/* ---------- 添加目标组(搜索下拉内切换,默认只进我的自选池) ---------- */
-const addTarget = ref("all"); // "all" 或分组 id
-const addToOpen = ref(false);
-const targetName = computed(() => {
-  if (addTarget.value === "all") return "我的自选";
-  return groups.value.find((x) => x.id === addTarget.value)?.name || "我的自选";
-});
+/* ---------- 单条结果的添加位置(点右侧 caret 选:我的自选 / 某分组) ---------- */
+const addMenu = ref(null); // { r, x, y } 固定定位小菜单,避免被下拉裁剪
 
-function pickTarget(t) {
-  addTarget.value = t;
-  addToOpen.value = false;
+function toggleAddMenu(r, e) {
+  if (addMenu.value?.r.f12 === r.f12) { addMenu.value = null; return; }
+  const rect = e.currentTarget.getBoundingClientRect();
+  addMenu.value = {
+    r,
+    x: Math.max(8, Math.min(rect.right - 132, window.innerWidth - 140)),
+    y: rect.bottom + 4,
+  };
 }
+// 已在池中的股票,只要还有没加入的分组,仍可通过 caret 直接入组
+const canPickTarget = (r) =>
+  groups.value.length > 0 &&
+  (!r.added || groups.value.some((g) => !g.codes.includes(r.f12)));
 
 /* ---------- 右键菜单(股票叶 / 自定义分组头) ---------- */
 const ctxMenu = ref(null); // { x, y, type:'stock'|'group', r, gid? }
@@ -685,12 +699,12 @@ watch(selected, (code) => {
 /* ---------- 生命周期 ---------- */
 let timer = null;
 
-// 点击组件外:关闭搜索下拉 + 目标组选择 + 右键菜单
+// 点击组件外:关闭搜索下拉 + 添加位置菜单 + 右键菜单
 function onDocClick(e) {
   if (searchBox.value && !searchBox.value.contains(e.target)) {
     dropOpen.value = false;
-    addToOpen.value = false;
   }
+  addMenu.value = null;
   closeCtx();
 }
 // 在树节点以外的地方右键:关掉已开的菜单(节点上由 openCtx/openGroupCtx 重新定位)
@@ -752,32 +766,33 @@ onBeforeUnmount(() => {
           <span v-if="searching" class="rsSpin"></span>
         </div>
         <div v-show="showDrop" class="rsDrop">
-          <div v-if="groups.length" class="rsTarget">
-            添加到
-            <span class="rsTargetWrap">
-              <button class="rsTargetBtn" @click.stop="addToOpen = !addToOpen">
-                {{ targetName }}
-                <svg class="rsCaret" :class="{ up: addToOpen }" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-                  <path d="M6 9l6 6 6-6"/></svg>
-              </button>
-              <div v-if="addToOpen" class="rsTargetDrop">
-                <button :class="{ on: addTarget === 'all' }" @click="pickTarget('all')">我的自选</button>
-                <button v-for="g in groups" :key="'t' + g.id"
-                        :class="{ on: addTarget === g.id }" @click="pickTarget(g.id)">
-                  {{ g.name }}
-                </button>
-              </div>
-            </span>
-          </div>
           <div v-if="!results.length && searching" class="rsEmpty">搜索中…</div>
           <div v-else-if="!results.length" class="rsEmpty">没有找到相关股票</div>
           <button v-for="(r, i) in results" :key="r.f12" class="rsItem"
-                  :class="{ act: i === active }" :disabled="r.added"
-                  @mouseenter="active = i" @click="add(r)">
+                  :class="{ act: i === active, added: r.added }"
+                  @mouseenter="active = i" @click="!r.added && add(r, null)">
             <span class="rsName"><template v-for="(s, j) in hl(r.f14)" :key="j"><mark v-if="s.hit">{{ s.t }}</mark><template v-else>{{ s.t }}</template></template></span>
             <span class="rsCode"><template v-for="(s, j) in hl(r.f12)" :key="j"><mark v-if="s.hit">{{ s.t }}</mark><template v-else>{{ s.t }}</template></template></span>
-            <span class="rsAct" :class="{ on: r.added }">{{ r.added ? "已加" : "+ 加入" }}</span>
+            <span class="rsActs">
+              <span class="rsAct" :class="{ on: r.added }">{{ r.added ? "已加" : "+ 加入" }}</span>
+              <span v-if="canPickTarget(r)" class="rsAddCaret" title="选择添加位置"
+                    @click.stop="toggleAddMenu(r, $event)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2.4" stroke-linecap="round">
+                  <path d="M6 9l6 6 6-6"/></svg>
+              </span>
+            </span>
+          </button>
+        </div>
+        <!-- 添加位置小菜单(固定定位,不被下拉裁剪):默认进我的自选,或直接入某分组 -->
+        <div v-if="addMenu" class="rsAddMenu"
+             :style="{ left: addMenu.x + 'px', top: addMenu.y + 'px' }" @click.stop>
+          <button v-if="!addMenu.r.added" @click="add(addMenu.r, null)">我的自选</button>
+          <button v-for="g in groups" :key="'am' + g.id"
+                  :disabled="g.codes.includes(addMenu.r.f12)"
+                  @click="add(addMenu.r, g.id)">
+            {{ g.name }}
+            <i v-if="g.codes.includes(addMenu.r.f12)">已在组内</i>
           </button>
         </div>
       </div>
@@ -850,7 +865,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <!-- 我的自选(全量股票池) -->
+        <!-- 我的自选(未分组股票;已入组的不再重复显示) -->
         <div class="tGroup">
           <button class="tNode g" @click="toggleGroup('g-all')">
             <svg class="tArrow" :class="{ shut: collapsed.has('g-all') }" viewBox="0 0 24 24"
@@ -860,10 +875,10 @@ onBeforeUnmount(() => {
                  stroke-width="2" stroke-linecap="round">
               <path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>
             我的自选
-            <span class="tCount">{{ rows.length }}</span>
+            <span class="tCount">{{ poolRows.length }}</span>
           </button>
           <div v-show="!collapsed.has('g-all')" class="tKids">
-            <button v-for="r in rows" :key="r.f12" class="tNode leaf"
+            <button v-for="r in poolRows" :key="r.f12" class="tNode leaf"
                     :class="{ on: selected === r.f12 && stockTab, dropHere: dropOn === r.f12 }"
                     draggable="true"
                     @click="pick(r.f12)" @contextmenu="openCtx(r, $event)"
@@ -1407,34 +1422,21 @@ onBeforeUnmount(() => {
 }
 .rsEmpty { padding: 16px; text-align: center; color: var(--dim); font-size: 12px; }
 
-/* 添加目标组选择(搜索下拉顶部) */
-.rsTarget {
-  display: flex; align-items: center; gap: 6px;
-  padding: 7px 12px; font-size: 11px; color: var(--dim);
-  background: var(--bg, transparent);
-}
-.rsTargetWrap { position: relative; }
-.rsTargetBtn {
-  display: inline-flex; align-items: center; gap: 3px;
-  background: none; border: 1px solid var(--line); border-radius: 999px;
-  color: var(--accent); font-family: inherit; font-size: 11px; font-weight: 600;
-  padding: 1px 9px; cursor: pointer; transition: all .15s;
-}
-.rsTargetBtn:hover { border-color: var(--accent); background: var(--accent-dim); }
-.rsCaret { width: 10px; height: 10px; transition: transform .18s; }
-.rsCaret.up { transform: rotate(180deg); }
-.rsTargetDrop {
-  position: absolute; top: calc(100% + 4px); left: 0; z-index: 5; min-width: 110px;
+/* 单条结果的添加位置选择(caret + 固定定位小菜单) */
+.rsAddMenu {
+  position: fixed; z-index: 60; min-width: 124px;
   background: var(--panel); border: 1px solid var(--line-strong); border-radius: 9px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, .16); padding: 4px;
 }
-.rsTargetDrop button {
-  display: block; width: 100%; background: none; border: none; border-radius: 6px;
+.rsAddMenu button {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; background: none; border: none; border-radius: 6px;
   font-family: inherit; font-size: 12px; color: var(--txt); text-align: left;
   padding: 6px 10px; cursor: pointer; transition: background .12s;
 }
-.rsTargetDrop button:hover { background: var(--hover); }
-.rsTargetDrop button.on { color: var(--accent); font-weight: 600; background: var(--accent-dim); }
+.rsAddMenu button:hover:not(:disabled) { background: var(--hover); }
+.rsAddMenu button:disabled { color: var(--dim); cursor: default; }
+.rsAddMenu button i { font-style: normal; font-size: 10px; color: var(--dim); }
 .rsItem {
   display: flex; align-items: center; gap: 8px; width: 100%;
   background: none; border: none; border-top: 1px solid var(--line);
@@ -1442,16 +1444,24 @@ onBeforeUnmount(() => {
   color: var(--txt); text-align: left; transition: background .12s;
 }
 .rsItem:first-child { border-top: none; }
-.rsItem:hover:not(:disabled), .rsItem.act:not(:disabled) { background: var(--hover); }
-.rsItem:disabled { cursor: default; opacity: .7; }
+.rsItem:hover, .rsItem.act { background: var(--hover); }
+.rsItem.added { cursor: default; }
 .rsItem mark { background: none; color: var(--accent); font-weight: 700; }
 .rsName { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rsCode { color: var(--dim); font-family: var(--mono); font-size: 11px; }
+.rsActs { margin-left: auto; flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
 .rsAct {
-  margin-left: auto; flex-shrink: 0; font-size: 11px; font-weight: 600; color: var(--accent);
+  font-size: 11px; font-weight: 600; color: var(--accent);
   border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px;
 }
 .rsAct.on { color: var(--dim); border-color: var(--line); font-weight: 400; }
+.rsAddCaret {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 5px; color: var(--dim);
+  transition: all .12s;
+}
+.rsAddCaret:hover { background: var(--accent-dim); color: var(--accent); }
+.rsAddCaret svg { width: 11px; height: 11px; }
 
 /* ===== 树(分组 + 股票叶) ===== */
 .tree { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 8px 16px; }
