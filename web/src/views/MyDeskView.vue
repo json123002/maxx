@@ -7,6 +7,7 @@
    数据:股票池/星标/分组/F10 走后端;实时行情/盘口异动/资金流走东财 JSONP 直连。 */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { message } from "ant-design-vue";
+import { track } from "../api/client";
 import { cls, fmtN, fmtYiT } from "../utils/format";
 import { marketState } from "../flow/capital-flow";
 import AnalysisModal from "../analysis/AnalysisModal.vue";
@@ -623,6 +624,9 @@ async function loadF10(code) {
   f10Cache[code] = { loading: true, data: null, error: false };
   try {
     f10Cache[code] = { loading: false, data: await fetchF10(code), error: false };
+    // 埋点:查看 F10 资料(缓存命中不重复上报)
+    const r = rows.value.find((x) => x.f12 === code);
+    track("f10_view", code + (r && r.f14 ? " " + r.f14 : ""));
   } catch {
     f10Cache[code] = { loading: false, data: null, error: true };
   }
@@ -716,6 +720,8 @@ onMounted(async () => {
   await loadStocks();
   refreshLive();
   refreshChanges();
+  // 埋点:打开工作台页面(带当前股票池规模)
+  track("desk_view", rows.value.length + " 只");
   // 预选第一只(重点关注优先),供个股页签直接使用
   const first = starRows.value[0] || rows.value[0];
   if (first) selected.value = first.f12;

@@ -12,10 +12,11 @@ import time
 from datetime import datetime
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ..db import get_conn
+from ..oplog import client_ip, log_op, user_agent
 from ..security import current_user
 from .watchlist_routes import LETTER_RE, _fkey_row, _suggest_astock
 
@@ -163,7 +164,7 @@ def desk_stock_list(user=Depends(current_user)):
 
 
 @router.post("/stocks")
-def desk_stock_add(body: StockIn, user=Depends(current_user)):
+def desk_stock_add(body: StockIn, request: Request, user=Depends(current_user)):
     """添加股票到工作台：code 必须存在于行情快照（防脏数据）；重复添加幂等。"""
     code = body.code.strip()
     if not CODE_RE.match(code):
@@ -179,26 +180,35 @@ def desk_stock_add(body: StockIn, user=Depends(current_user)):
             " VALUES (?, ?, ?, ?)",
             (user["id"], code, row["name"],
              datetime.now().isoformat(timespec="seconds")))
+    log_op(user, "desk_stock_add", "%s %s" % (code, row["name"]),
+           client_ip(request), user_agent(request))
     return {"ok": True, "code": code, "name": row["name"]}
 
 
 @router.delete("/stocks/{code}")
-def desk_stock_remove(code: str, user=Depends(current_user)):
+def desk_stock_remove(code: str, request: Request, user=Depends(current_user)):
     """从工作台移除（连带清理星标和分组成员关系；不存在也返回 ok）。"""
     if not CODE_RE.match(code):
         raise HTTPException(400, "股票代码须为 6 位数字")
     with get_conn() as conn:
+        row = conn.execute(
+            "SELECT name FROM desk_stock WHERE user_id = ? AND code = ?",
+            (user["id"], code)).fetchone()
         conn.execute("DELETE FROM desk_stock WHERE user_id = ? AND code = ?",
                      (user["id"], code))
         conn.execute("DELETE FROM desk_star WHERE user_id = ? AND code = ?",
                      (user["id"], code))
         conn.execute("DELETE FROM desk_group_item WHERE user_id = ? AND code = ?",
                      (user["id"], code))
+    log_op(user, "desk_stock_del",
+           code + (" " + row["name"] if row and row["name"] else ""),
+           client_ip(request), user_agent(request))
     return {"ok": True}
 
 
 @router.put("/stocks/order")
-def desk_stock_order(body: StockOrderIn, user=Depends(current_user)):
+def desk_stock_order(body: StockOrderIn, request: Request,
+                     user=Depends(current_user)):
     """保存分组内拖拽排序：按传入顺序写递减 sort 值（与自选排序同口径）。"""
     codes = [c.strip() for c in body.codes if CODE_RE.match(c.strip())]
     if not codes:
@@ -209,11 +219,13 @@ def desk_stock_order(body: StockOrderIn, user=Depends(current_user)):
             "UPDATE desk_stock SET sort = ? WHERE user_id = ? AND code = ?",
             [(n - i, user["id"], c) for i, c in enumerate(codes)],
         )
+    log_op(user, "desk_stock_order", "%d 只" % len(codes),
+           client_ip(request), user_agent(request))
     return {"ok": True, "count": len(codes)}
 
 
 @router.post("/stocks/import")
-def desk_stock_import(user=Depends(current_user)):
+def desk_stock_import(request: Request, user=Depends(current_user)):
     """从「我的自选」一键导入（幂等，只补新代码，不影响已有排序/分组）。"""
     with get_conn() as conn:
         cur = conn.execute(
@@ -222,6 +234,8 @@ def desk_stock_import(user=Depends(current_user)):
             " WHERE user_id = ?",
             (user["id"],),
         )
+    log_op(user, "desk_stock_import", "新增 %d 只" % cur.rowcount,
+           client_ip(request), user_agent(request))
     return {"ok": True, "added": cur.rowcount}
 
 
@@ -282,7 +296,7 @@ def star_list(user=Depends(current_user)):
 
 
 @router.post("/star")
-def star_add(body: StockIn, user=Depends(current_user)):
+def star_add(body: StockIn, request: Request, user=Depends(current_user)):
     """标记重点关注：须已在工作台股票池内（重点关注是池的子集），重复幂等。"""
     code = body.code.strip()
     if not CODE_RE.match(code):
@@ -298,17 +312,19 @@ def star_add(body: StockIn, user=Depends(current_user)):
             "INSERT OR IGNORE INTO desk_star (user_id, code, created_at)"
             " VALUES (?, ?, ?)",
             (user["id"], code, datetime.now().isoformat(timespec="seconds")))
+    log_op(user, "desk_star_add", code, client_ip(request), user_agent(request))
     return {"ok": True, "code": code}
 
 
 @router.delete("/star/{code}")
-def star_remove(code: str, user=Depends(current_user)):
+def star_remove(code: str, request: Request, user=Depends(current_user)):
     """取消重点关注（不存在也返回 ok，幂等）。"""
     if not CODE_RE.match(code):
         raise HTTPException(400, "股票代码须为 6 位数字")
     with get_conn() as conn:
         conn.execute("DELETE FROM desk_star WHERE user_id = ? AND code = ?",
                      (user["id"], code))
+    log_op(user, "desk_star_del", code, client_ip(request), user_agent(request))
     return {"ok": True}
 
 
@@ -355,7 +371,7 @@ def group_list(user=Depends(current_user)):
 
 
 @router.post("/groups")
-def group_add(body: GroupIn, user=Depends(current_user)):
+def group_add(body: GroupIn, request: Request, user=Depends(current_user)):
     """新建分组:按用户同名查重,上限 50 个防滥用。"""
     name = body.name.strip()
     if not name:
@@ -375,16 +391,18 @@ def group_add(body: GroupIn, user=Depends(current_user)):
         cur = conn.execute(
             "INSERT INTO desk_group (user_id, name, created_at) VALUES (?, ?, ?)",
             (user["id"], name, datetime.now().isoformat(timespec="seconds")))
+    log_op(user, "desk_group_add", name, client_ip(request), user_agent(request))
     return {"ok": True, "id": cur.lastrowid, "name": name}
 
 
 @router.put("/groups/{gid}")
-def group_rename(gid: int, body: GroupIn, user=Depends(current_user)):
+def group_rename(gid: int, body: GroupIn, request: Request,
+                 user=Depends(current_user)):
     """重命名分组。"""
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "分组名称不能为空")
-    _own_group(gid, user["id"])
+    row = _own_group(gid, user["id"])
     dup = get_conn().execute(
         "SELECT 1 FROM desk_group WHERE user_id = ? AND name = ? AND id != ?",
         (user["id"], name, gid)).fetchone()
@@ -392,22 +410,27 @@ def group_rename(gid: int, body: GroupIn, user=Depends(current_user)):
         raise HTTPException(400, "已存在同名分组")
     with get_conn() as conn:
         conn.execute("UPDATE desk_group SET name = ? WHERE id = ?", (name, gid))
+    log_op(user, "desk_group_rename", "%s → %s" % (row["name"], name),
+           client_ip(request), user_agent(request))
     return {"ok": True, "name": name}
 
 
 @router.delete("/groups/{gid}")
-def group_remove(gid: int, user=Depends(current_user)):
+def group_remove(gid: int, request: Request, user=Depends(current_user)):
     """删除分组(组内成员关系一并删除,不影响自选本身)。"""
-    _own_group(gid, user["id"])
+    row = _own_group(gid, user["id"])
     with get_conn() as conn:
         conn.execute("DELETE FROM desk_group WHERE id = ?", (gid,))
+    log_op(user, "desk_group_del", row["name"],
+           client_ip(request), user_agent(request))
     return {"ok": True}
 
 
 @router.post("/groups/{gid}/items")
-def group_item_add(gid: int, body: GroupItemIn, user=Depends(current_user)):
+def group_item_add(gid: int, body: GroupItemIn, request: Request,
+                   user=Depends(current_user)):
     """股票加入分组:须已在工作台股票池内,重复幂等。"""
-    _own_group(gid, user["id"])
+    row = _own_group(gid, user["id"])
     code = body.code.strip()
     if not CODE_RE.match(code):
         raise HTTPException(400, "股票代码须为 6 位数字")
@@ -421,13 +444,16 @@ def group_item_add(gid: int, body: GroupItemIn, user=Depends(current_user)):
             "INSERT OR IGNORE INTO desk_group_item"
             " (group_id, user_id, code, created_at) VALUES (?, ?, ?, ?)",
             (gid, user["id"], code, datetime.now().isoformat(timespec="seconds")))
+    log_op(user, "desk_gitem_add", "%s %s" % (row["name"], code),
+           client_ip(request), user_agent(request))
     return {"ok": True, "code": code}
 
 
 @router.delete("/groups/{gid}/items/{code}")
-def group_item_remove(gid: int, code: str, user=Depends(current_user)):
+def group_item_remove(gid: int, code: str, request: Request,
+                      user=Depends(current_user)):
     """股票移出分组(不存在也返回 ok,幂等)。"""
-    _own_group(gid, user["id"])
+    row = _own_group(gid, user["id"])
     if not CODE_RE.match(code):
         raise HTTPException(400, "股票代码须为 6 位数字")
     with get_conn() as conn:
@@ -435,13 +461,16 @@ def group_item_remove(gid: int, code: str, user=Depends(current_user)):
             "DELETE FROM desk_group_item WHERE group_id = ? AND user_id = ?"
             " AND code = ?",
             (gid, user["id"], code))
+    log_op(user, "desk_gitem_del", "%s %s" % (row["name"], code),
+           client_ip(request), user_agent(request))
     return {"ok": True}
 
 
 @router.put("/groups/{gid}/order")
-def group_item_order(gid: int, body: GroupOrderIn, user=Depends(current_user)):
+def group_item_order(gid: int, body: GroupOrderIn, request: Request,
+                     user=Depends(current_user)):
     """保存组内拖拽排序:按传入顺序写递减 sort 值(与自选排序同口径)。"""
-    _own_group(gid, user["id"])
+    row = _own_group(gid, user["id"])
     codes = [c.strip() for c in body.codes if CODE_RE.match(c.strip())]
     if not codes:
         raise HTTPException(400, "无有效股票代码")
@@ -451,6 +480,8 @@ def group_item_order(gid: int, body: GroupOrderIn, user=Depends(current_user)):
             "UPDATE desk_group_item SET sort = ?"
             " WHERE group_id = ? AND user_id = ? AND code = ?",
             [(n - i, gid, user["id"], c) for i, c in enumerate(codes)])
+    log_op(user, "desk_gitem_order", "%s %d 只" % (row["name"], len(codes)),
+           client_ip(request), user_agent(request))
     return {"ok": True, "count": len(codes)}
 
 

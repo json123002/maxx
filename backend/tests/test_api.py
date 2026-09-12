@@ -716,3 +716,44 @@ def test_kline_cache(client, monkeypatch):
     assert bars[1]["pct"] == 2.15            # f59 官方涨跌幅
     again = kline.get_bars("600999")
     assert again == bars and len(calls) == 1  # 当天内第二次不触网
+
+
+# ===== 工作台 =====
+def test_desk_op_logs(client):
+    """工作台各写操作都要留审计日志(09-12 新增的模块曾整体漏埋点)。"""
+    db.replace_latest(SAMPLE, "实时行情")   # 前面 radar 用例换过快照,重置回样本
+    hr = login(client, config.ROOT_USERNAME, config.ROOT_PASSWORD)
+    ha = login(client, "admin", "admin123")
+    # 加股票 / 星标 / 分组 / 组成员 / 删股票
+    assert client.post("/api/desk/stocks", headers=ha,
+                       json={"code": "600001"}).status_code == 200
+    assert client.post("/api/desk/star", headers=ha,
+                       json={"code": "600001"}).status_code == 200
+    gid = client.post("/api/desk/groups", headers=ha,
+                      json={"name": "测试组"}).json()["id"]
+    assert client.post("/api/desk/groups/%d/items" % gid, headers=ha,
+                       json={"code": "600001"}).status_code == 200
+    assert client.delete("/api/desk/stocks/600001", headers=ha).status_code == 200
+    for act in ("desk_stock_add", "desk_star_add", "desk_group_add",
+                "desk_gitem_add", "desk_stock_del"):
+        r = client.get("/api/logs", headers=hr, params={"action": act}).json()
+        assert any(x["username"] == "admin" for x in r["rows"]), act
+    # 删股票详情带名称(与自选删除同口径)
+    r = client.get("/api/logs", headers=hr,
+                   params={"action": "desk_stock_del", "kw": "600001"}).json()
+    assert any("测试钢铁" in x["detail"] for x in r["rows"])
+    # 改密属安全敏感操作,也要留痕(改完立刻改回,不影响其它用例)
+    client.post("/api/auth/change-password", headers=ha,
+                json={"old_password": "admin123", "new_password": "admin456"})
+    client.post("/api/auth/change-password", headers=ha,
+                json={"old_password": "admin456", "new_password": "admin123"})
+    r = client.get("/api/logs", headers=hr,
+                   params={"action": "change_password"}).json()
+    assert any(x["username"] == "admin" for x in r["rows"])
+    # 工作台新埋点动作已在白名单内
+    assert client.post("/api/track", headers=ha,
+                       json={"action": "desk_view", "detail": "3 只"}
+                       ).status_code == 200
+    assert client.post("/api/track", headers=ha,
+                       json={"action": "f10_view", "detail": "600001 测试钢铁"}
+                       ).status_code == 200

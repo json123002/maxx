@@ -87,7 +87,8 @@ def me(user=Depends(current_user)):
 
 
 @router.post("/change-password")
-def change_password(body: ChangePwdIn, user=Depends(current_user)):
+def change_password(body: ChangePwdIn, request: Request,
+                    user=Depends(current_user)):
     if not re.match(r"^\S+$", body.new_password):
         raise HTTPException(400, "新密码不能包含空白字符")
     conn = get_conn()
@@ -101,4 +102,7 @@ def change_password(body: ChangePwdIn, user=Depends(current_user)):
         # 改密后吊销本人其它会话（保留当前会话）
         conn.execute("DELETE FROM sessions WHERE user_id = ? AND token != ?",
                      (user["id"], user["token"]))
+    # 改密属安全敏感操作,与登录/登出同口径记录(不记密码本身)
+    log_op(user, "change_password", "改密并吊销其它会话",
+           client_ip(request), user_agent(request))
     return {"ok": True}
