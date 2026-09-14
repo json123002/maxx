@@ -254,6 +254,60 @@ def source_test(sid: int, user=Depends(current_user)):
                 "error": str(e)[:200]}
 
 
+def _mkt_suffix(code: str) -> str:
+    """6 位代码 → 麦蕊要求的交易所后缀（60/68 沪，00/30 深，其余按北交所）。"""
+    if code.startswith(("60", "68")):
+        return "SH"
+    if code.startswith(("00", "30")):
+        return "SZ"
+    return "BJ"
+
+
+@router.get("/api/quote/intraday/{code}")
+def quote_intraday(code: str, user=Depends(current_user)):
+    """当日分时线（5 分钟粒度）：仅限启用中的行情源（自己的或公共源）。
+
+    默认数据源（东方财富快照）无分时能力，前端据此禁用分时入口；
+    麦蕊 1 分钟级为 Quant Pro 专属，免费/包月档取 5 分钟粒度（当日 ≤48 根）。
+    """
+    if not CODE_RE.match(code):
+        raise HTTPException(400, "股票代码须为 6 位数字")
+    conn = get_conn()
+    src = conn.execute(
+        "SELECT * FROM quote_source WHERE user_id = ? AND enabled = 1",
+        (user["id"],)).fetchone()
+    if not src:
+        src = conn.execute(
+            "SELECT * FROM quote_source WHERE enabled = 1 AND is_public = 1"
+            " ORDER BY id LIMIT 1").fetchone()
+    if not src or src["provider"] not in PROVIDERS:
+        raise HTTPException(400, "未启用行情源：分时线需要自己的行情接口（或公共源）")
+    try:
+        # history + lt=96：最近两个交易日的 5 分钟线（latest 接口上限只有 5 条），
+        # 按日期分组取最新一个交易日 → 非交易时段也能看到最近完整一天的分时。
+        r = _mr.get(
+            PROVIDERS[src["provider"]]["base"] + "/hsstock/history/"
+            + code + "." + _mkt_suffix(code) + "/5/n/" + src["licence"],
+            params={"lt": 96}, timeout=6)
+        r.raise_for_status()
+        data = r.json()
+        if not isinstance(data, list):
+            raise RuntimeError(str(data)[:120])
+    except Exception as e:
+        raise HTTPException(502, "分时数据获取失败: " + str(e)[:150])
+    day = max((it.get("t") or "")[:10] for it in data) if data else ""
+    bars = [it for it in data if (it.get("t") or "")[:10] == day]
+    points = [{"t": (it.get("t") or "")[-8:-3],        # HH:MM
+               "c": _num(it.get("c")), "v": _num(it.get("v")),
+               "a": _num(it.get("a"))} for it in bars]
+    source = PROVIDERS[src["provider"]]["label"] + " · " + src["name"]
+    if src["user_id"] != user["id"]:
+        source += "（公共）"
+    return {"source": source, "period": "5m", "date": day,
+            "prev_close": _num(bars[0].get("pc")) if bars else None,
+            "points": points}
+
+
 # ===== 首页实时行情（按用户启用源代理，失败回落本地快照） =====
 
 @router.get("/api/quote/realtime")

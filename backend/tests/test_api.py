@@ -1004,3 +1004,56 @@ def test_public_quotesource_sharing(client, monkeypatch):
     # 清理：删源删自选
     client.delete(f"/api/quotesettings/{sid}", headers=hs)
     client.delete("/api/watchlist/600001", headers=hu)
+
+
+def test_quote_intraday(client, monkeypatch):
+    """分时线：无启用源 400；启用源走 history 按日分组取最新交易日；失败 502；公共源可用。"""
+    h = login(client, "admin", "admin123")
+
+    def fake_hist(url, params=None, timeout=None):
+        assert "/hsstock/history/600001.SH/5/n/" in url and params["lt"] == 96
+        bars = [{"t": t, "o": 10.0, "h": 10.2, "l": 9.9, "c": 10.1,
+                 "v": 1000, "a": 1e6, "pc": 9.8, "sf": 0}
+                for t in ["2026-09-11 14:55:00", "2026-09-11 15:00:00",
+                          "2026-09-14 09:35:00", "2026-09-14 09:40:00",
+                          "2026-09-14 09:45:00"]]
+        return _Resp(bars)
+
+    # 无启用源（自己的/公共的都没有）→ 400，前端据此置灰分时页签
+    assert client.get("/api/quote/intraday/600001", headers=h).status_code == 400
+    # 代码格式校验
+    assert client.get("/api/quote/intraday/abc", headers=h).status_code == 400
+
+    # 启用自己的源 → history 接口，跨日返回按日期分组只留最新交易日（09-14）
+    sid = [x for x in client.get("/api/quotesettings", headers=h).json()["rows"]
+           if x["name"] == "备用"][0]["id"]
+    client.patch(f"/api/quotesettings/{sid}", headers=h, json={"enabled": True})
+    monkeypatch.setattr(sr._mr, "get", fake_hist)
+    r = client.get("/api/quote/intraday/600001", headers=h)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["period"] == "5m" and d["date"] == "2026-09-14"
+    assert len(d["points"]) == 3 and d["points"][0]["t"] == "09:35"
+    assert d["points"][0]["c"] == 10.1 and d["prev_close"] == 9.8
+    assert "麦蕊智数" in d["source"] and "公共" not in d["source"]
+
+    # 源调用失败 → 502
+    def boom(*a, **k):
+        raise ConnectionError("mairui down")
+    monkeypatch.setattr(sr._mr, "get", boom)
+    assert client.get("/api/quote/intraday/600001", headers=h).status_code == 502
+
+    # 公共源：其他用户未启用自己的源 → 走公共源，来源标注带（公共）
+    _mkuser(client, h, "min_user", "user123")
+    hm = login(client, "min_user", "user123")
+    client.patch(f"/api/quotesettings/{sid}", headers=h, json={"is_public": True})
+    monkeypatch.setattr(sr._mr, "get", fake_hist)
+    d = client.get("/api/quote/intraday/600001", headers=hm).json()
+    assert "公共" in d["source"]
+
+    # 清理：删源删临时用户，不影响其它用例
+    client.delete(f"/api/quotesettings/{sid}", headers=h)
+    uid = [u["id"] for u in client.get("/api/admin/users",
+                                       headers=h).json()["users"]
+           if u["username"] == "min_user"][0]
+    client.delete(f"/api/admin/users/{uid}", headers=h)

@@ -12,6 +12,8 @@ import { fetchKline, fetchMoneyFlow } from "../analysis/data";
 import { inWatch, loadWatchCodes, toggleWatch } from "../stores/watchlist";
 import AnalysisModal from "../analysis/AnalysisModal.vue";
 import KChart from "../stock/KChart.vue";
+import MinuteChart from "../stock/MinuteChart.vue";
+import { activePersonalSource, loadQuoteSource } from "../stores/quotesource";
 
 const route = useRoute();
 const router = useRouter();
@@ -25,9 +27,45 @@ const kLoading = ref(true);   // K线取数中(空态显示加载动画,失败�
 const notFound = ref(false);
 const liveSrc = ref("");      // 报价实时来源(自己/公共行情源),空=快照
 
+/* ---------- 图表模式:分时(m)/日K(d) ---------- */
+// 分时走启用中的行情源(自己的或公共);默认东财快照无分时,选项置灰,点击提示
+const chartMode = ref("d");
+const minData = ref(null);    // /api/quote/intraday 返回 {date,prev_close,source,points}
+const minLoading = ref(false);
+const hasSource = computed(() => !!activePersonalSource());
+
+function pickChart(mode) {
+  if (mode === chartMode.value) return;
+  if (mode === "m") {
+    if (!hasSource.value) {
+      message.info("当前接口：东方财富，暂不支持分时线（可在 设置·行情设置 启用自己的行情源）");
+      return;
+    }
+    chartMode.value = "m";
+    loadIntraday();
+  } else {
+    chartMode.value = "d";
+  }
+}
+
+async function loadIntraday() {
+  minLoading.value = true;
+  try {
+    minData.value = await api("/api/quote/intraday/" + code);
+  } catch (err) {
+    if (err.message !== "unauthorized") {
+      message.error(err.message || "分时数据获取失败");
+      chartMode.value = "d";
+    }
+  } finally {
+    minLoading.value = false;
+  }
+}
+
 /* ---------- 取数 ---------- */
 onMounted(async () => {
   loadWatchCodes();
+  loadQuoteSource();   // 页签可用性依赖行情源状态(应用启动已拉过,这里兜底)
   try {
     const d = await api("/api/quote/stock/" + code);
     quote.value = d.row;
@@ -179,7 +217,19 @@ function goBack() {
     <!-- ===== 终端主区:左K线 + 右数据栏 ===== -->
     <div v-else class="termGrid">
       <div class="chartCol">
-        <KChart :bars="bars" :loading="kLoading" />
+        <div class="chartTabs">
+          <button class="tabBtn" :class="{ on: chartMode === 'm', off: !hasSource }"
+                  :title="hasSource ? '5分钟分时,来自启用的行情源' : '需要启用自己的行情源(或公共源)'"
+                  @click="pickChart('m')">分时</button>
+          <button class="tabBtn" :class="{ on: chartMode === 'd' }" @click="pickChart('d')">日K</button>
+        </div>
+        <div class="chartBody">
+          <MinuteChart v-if="chartMode === 'm'"
+                       :points="minData?.points || []" :prev-close="minData?.prev_close ?? null"
+                       :date="minData?.date || ''" :source="minData?.source || ''"
+                       :loading="minLoading" />
+          <KChart v-else :bars="bars" :loading="kLoading" />
+        </div>
       </div>
 
       <aside class="sideCol">
@@ -297,7 +347,21 @@ function goBack() {
   flex: 1; min-width: 0; min-height: 0;
   border: 1px solid var(--line); border-radius: 12px;
   background: var(--panel); overflow: hidden;
+  display: flex; flex-direction: column;
 }
+/* 分时/日K 页签 */
+.chartTabs {
+  display: flex; gap: 4px; padding: 10px 12px 0; flex-shrink: 0;
+}
+.tabBtn {
+  background: none; border: 1px solid transparent; border-radius: 999px;
+  padding: 3px 13px; font-size: 12px; font-family: inherit;
+  color: var(--dim); cursor: pointer; transition: color .15s, border-color .15s;
+}
+.tabBtn:hover { color: var(--txt); }
+.tabBtn.on { color: var(--txt); font-weight: 650; border-color: var(--line-strong); }
+.tabBtn.off { opacity: .55; }
+.chartBody { flex: 1; min-height: 0; }
 .sideCol {
   width: 320px; flex-shrink: 0; overflow-y: auto; min-height: 0;
   scrollbar-width: thin; scrollbar-color: var(--scroll) transparent;
