@@ -8,7 +8,7 @@
       </div>
       <div v-if="fetchedAt" class="mastMeta" :class="{ stale }">
         <i class="liveDot"></i>
-        {{ stale ? "快照待更新" : "数据更新于" }} {{ fetchedAt }} · {{ source || "东方财富" }}
+        {{ stale ? "快照待更新" : "数据更新于" }} {{ fetchedAt }} · 东方财富{{ source ? " · " + source : "" }}
       </div>
     </header>
 

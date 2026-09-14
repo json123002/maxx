@@ -2,6 +2,7 @@
 import { reactive } from "vue";
 import { apiFetch } from "../api/client";
 import { getToken, setToken, removeToken } from "../utils/token";
+import { resetQuoteSource } from "./quotesource";
 
 export { getToken, setToken };
 
@@ -12,6 +13,7 @@ export const authState = reactive({
 export function clearToken() {
   removeToken();
   authState.user = null;
+  resetQuoteSource();   // 行情源标注随会话一起清掉
 }
 
 // 服务端校验令牌并取回用户对象;失败返回 null

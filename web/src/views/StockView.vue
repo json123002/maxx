@@ -23,6 +23,7 @@ const flows = ref([]);        // 资金流(近10日)
 const kSrc = ref("");
 const kLoading = ref(true);   // K线取数中(空态显示加载动画,失败才显示"加载失败")
 const notFound = ref(false);
+const liveSrc = ref("");      // 报价实时来源(自己/公共行情源),空=快照
 
 /* ---------- 取数 ---------- */
 onMounted(async () => {
@@ -36,6 +37,14 @@ onMounted(async () => {
     notFound.value = true;
     return;
   }
+  // 启用了行情源(自己的或公共) → 报价用其实时字段覆盖快照;失败静默留在快照
+  api("/api/quote/realtime?codes=" + code).then((d) => {
+    const r = (d.rows || [])[0];
+    if (d.live && r && quote.value) {
+      Object.assign(quote.value, { f2: r.f2, f3: r.f3, f6: r.f6, f8: r.f8 });
+      liveSrc.value = d.source;
+    }
+  }).catch(() => {});
   // K线/资金流失败不阻塞整页
   fetchKline(code, 250).then((r) => { bars.value = r.bars; kSrc.value = r.source; })
     .catch(() => {})
@@ -149,6 +158,9 @@ function goBack() {
         <span class="bigChg" :class="cls(pct)">
           {{ typeof pct === "number" ? (pct > 0 ? "+" : "") + pct.toFixed(2) + "%" : "—" }}
         </span>
+        <span v-if="liveSrc" class="liveTag" title="报价来自你在设置里启用的行情源(或他人公开源),其余字段为系统快照">
+          <i class="liveTagDot"></i>{{ liveSrc }}
+        </span>
       </template>
       <span class="srcNote">{{ kSrc }}</span>
       <span class="topSpacer"></span>
@@ -242,6 +254,16 @@ function goBack() {
 }
 .bigPrice { font-size: 24px; font-weight: 700; font-family: var(--mono); letter-spacing: -.01em; margin-left: 8px; }
 .bigChg { font-size: 14px; font-weight: 600; font-family: var(--mono); }
+/* 实时报价来源角标(自己的/公共行情源) */
+.liveTag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--accent); font-family: var(--mono);
+  border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px;
+}
+.liveTagDot {
+  width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
 .srcNote { color: var(--dim); font-size: 11.5px; }
 .up { color: var(--up); }
 .down { color: var(--down); }

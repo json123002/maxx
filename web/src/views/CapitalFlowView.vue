@@ -11,6 +11,7 @@ import {
   fmtYi, fmtYiShort, pad2, timeText,
 } from "../flow/capital-flow";
 import { track } from "../api/client";
+import { quoteSource, loadQuoteSource, activePersonalSource } from "../stores/quotesource";
 
 const PREFS_KEY = "flow_prefs_v1";
 const HISTORY_KEY = "flow_history_v1";
@@ -129,6 +130,9 @@ const barWidth = (list, v) => {
 };
 
 /* ===== 时钟 / 市场状态 / 倒计时 ===== */
+// 本页是全市场级数据,固定走系统默认源;若用户配置/公开了行情源,状态条单独标注其适用范围
+loadQuoteSource();
+const personalSrc = computed(() => activePersonalSource());
 const market = computed(() => marketState(now.value));
 const lastSeriesTime = computed(() =>
   mainRows.value.length && mainRows.value[0].series.length
@@ -174,13 +178,13 @@ async function refresh(manual = false) {
     mainRows.value = main;
     watchRows.value = watch;
 
-    statusText.value = "接口正常 · " + (Date.now() - started) + " ms";
+    statusText.value = "东方财富延迟行情 · 正常 · " + (Date.now() - started) + " ms";
     lastUpdate.value = timeText(new Date());
     snapshotLabel.value = lastSeriesTime.value === "—" ? "当前截面" : "分钟数据截至 " + lastSeriesTime.value;
     nextAt.value = autoRefresh.value ? Date.now() + intervalSec.value * 1000 : 0;
     if (manual) track("flow_view", (industry.value ? "行业" : "概念") + "板块 · " + sectors.length + " 个");
   } catch (err) {
-    statusText.value = "同步失败 · " + (err?.message || "未知错误");
+    statusText.value = "东方财富延迟行情 · 同步失败 · " + (err?.message || "未知错误");
     nextAt.value = autoRefresh.value ? Date.now() + intervalSec.value * 1000 : 0;
     message.error("数据同步失败，请检查网络后重试");
   } finally {
@@ -332,6 +336,10 @@ onUnmounted(() => {
       <div class="healthItem"><span>LAST UPDATE</span><b>{{ lastUpdate }}</b></div>
       <div class="healthItem"><span>MARKET SNAPSHOT</span><b>{{ snapshotLabel }}</b></div>
       <div class="healthItem"><span>NEXT REFRESH</span><b>{{ nextText }}</b></div>
+      <div v-if="personalSrc" class="healthItem"
+           title="板块资金为全市场级数据,走系统默认源;你启用的行情源为个股级实时,用于首页自选/个股详情等个股页面">
+        <span>MY QUOTE</span><b>{{ personalSrc }} · 个股实时</b>
+      </div>
     </div>
 
     <!-- ===== 市场概览 KPI ===== -->

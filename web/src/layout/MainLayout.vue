@@ -42,7 +42,7 @@
       <!-- 顶栏:页面标题 + 主题切换 + 用户菜单 -->
       <a-layout-header class="appHeader">
         <span class="hdrTitle">{{ route.meta.title || "" }}</span>
-        <span class="hdrNote">数据源:东方财富 · 仅作客观数据筛选,不构成投资建议</span>
+        <span class="hdrNote">{{ hdrNote }}</span>
         <span class="hdrSpacer"></span>
         <a-tooltip :title="themeMode === 'light' ? '切换深色' : '切换浅色'">
           <button class="iconBtn" @click="toggleTheme">
@@ -91,6 +91,7 @@ import {
   FileTextOutlined, HistoryOutlined, FireOutlined, SettingOutlined, RadarChartOutlined,
 } from "@ant-design/icons-vue";
 import { authState, logout } from "../stores/auth";
+import { quoteSource, loadQuoteSource, activePersonalSource } from "../stores/quotesource";
 import { themeMode, toggleTheme } from "../utils/theme";
 import PwdModal from "./PwdModal.vue";
 
@@ -98,6 +99,14 @@ const route = useRoute();
 const router = useRouter();
 const collapsed = ref(false);
 const pwdOpen = ref(false);
+
+// 顶栏常驻数据来源说明:全市场数据走默认源;配置/公开了行情源时标注个股实时来源
+loadQuoteSource();
+const hdrNote = computed(() => {
+  const p = activePersonalSource();
+  return "数据源:东方财富(全市场)" + (p ? " + " + p + "(个股实时)" : "")
+    + " · 仅作客观数据筛选,不构成投资建议";
+});
 
 // 菜单配置:新增功能页在这里加一项即可(adminOnly 仅管理员可见,rootOnly 仅隐藏 root 可见)
 // 带 children 的为一级分组;子项全被权限过滤掉时整组不显示
