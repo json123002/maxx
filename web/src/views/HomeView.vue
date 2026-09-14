@@ -76,6 +76,9 @@
         <div class="secHead">
           <span class="secName">活跃精选</span>
           <span class="secEn">主板 · 综合</span>
+          <span v-if="hotSrc" class="secNote" :title="'排名来自全市场快照,报价实时来自 ' + hotSrc">
+            <i class="srcDot live"></i>报价实时 · {{ hotSrc }}
+          </span>
           <router-link to="/screener" class="secMore">进入筛选 →</router-link>
         </div>
         <div v-if="hot.length" class="hot">
@@ -178,6 +181,7 @@ const stats = reactive({ valid: null, up: null, down: null, flat: null, limit_up
 const senti = reactive({ temp: null, level: "", lv: 3 });
 const sentiTitle = ref("");
 const hot = ref([]);
+const hotSrc = ref("");      // 活跃精选报价的实时来源(自己的/公共源),空=快照价
 const watchRows = ref([]);   // 我的自选(最多展示 8 只)
 const watchSrc = ref("");    // 行情来源描述(如 "麦蕊智数 · 我的麦蕊" / "东方财富快照")
 const watchLive = ref(false);// 是否实时(启用了自己的行情源)
@@ -242,6 +246,7 @@ async function load() {
     Object.assign(stats, meta.stats, { down: meta.stats.down ?? (meta.stats.valid - meta.stats.up) });
     computeSenti(meta.stats);
     hot.value = pickTopComposite(list.rows || [], 6);
+    overlayHotRealtime();
     // 缓存本次结果,下次进页面先渲染缓存(1M 小水管下避免白屏等待)
     try {
       sessionStorage.setItem("home-cache", JSON.stringify({
@@ -250,6 +255,23 @@ async function load() {
       }));
     } catch (e) {}
   } catch { /* 未登录跳转由 api client 处理;其余失败保持占位 */ }
+}
+
+// 活跃精选的排名来自全市场快照(东方财富);启用源后展示的现价/涨幅/换手
+// 用自己的行情源实时覆盖(6 只 ≤ 单次批量上限),失败静默留在快照价
+async function overlayHotRealtime() {
+  const codes = hot.value.map((r) => r.f12).join(",");
+  if (!codes) return;
+  try {
+    const d = await api("/api/quote/realtime?codes=" + codes);
+    if (!d.live) return;
+    const by = new Map((d.rows || []).map((r) => [r.f12, r]));
+    hot.value = hot.value.map((r) => {
+      const q = by.get(r.f12);
+      return q ? { ...r, f2: q.f2, f3: q.f3, f8: q.f8 } : r;
+    });
+    hotSrc.value = d.source || "";
+  } catch { /* 实时覆盖失败不影响页面 */ }
 }
 
 // 缓存优先:上次数据立即上屏,随后 load() 静默刷新
