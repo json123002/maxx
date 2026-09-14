@@ -18,7 +18,7 @@ maxx/
                         · watchlist（自选股）· radar（涨停雷达·一进二粗筛）
                         · settings（行情源设置 + 首页实时行情代理）
                         · log（操作日志，仅隐藏 root）
-    tests/            pytest（35 个用例，独立临时库，不触网）
+    tests/            pytest（36 个用例，独立临时库，不触网）
   web/                Vue3 前端工程（Vite + vue-router + ant-design-vue，包管理只用 pnpm）
     src/views/        LoginView(转盘登录) / HomeView(工作台) / ScreenerView(换手率筛选)
                         / WatchlistView(自选股) / StockView(个股详情+日K阶段标注)
@@ -88,8 +88,8 @@ python deploy/verify_frontend.py     # 只读核对线上前端版本及全部�
 | GET /api/health | 服务与最近抓取状态（公开） |
 | GET/POST/PATCH/DELETE /api/admin/users | 用户管理（仅管理员） |
 | GET/POST /api/watchlist · DELETE /api/watchlist/{code} · GET /api/watchlist/search | 自选股（登录用户） |
-| GET/POST /api/quotesettings · PATCH/DELETE /api/quotesettings/{id} · POST …/{id}/test | 行情源设置（按用户隔离，证书编号只回本人） |
-| GET /api/quote/realtime | 首页自选实时行情：启用源走第三方（后端代理），否则回落本地快照 |
+| GET/POST /api/quotesettings · PATCH/DELETE /api/quotesettings/{id} · POST …/{id}/test | 行情源设置（按用户隔离，证书编号只回本人；公开源全站可用，他人仅见名称） |
+| GET /api/quote/realtime | 首页自选实时行情：自己的源 → 公开源 → 本地快照，三级兜底 |
 | POST /api/track · GET /api/logs | 行为埋点 / 操作日志（后者仅隐藏 root） |
 
 ## 数据说明

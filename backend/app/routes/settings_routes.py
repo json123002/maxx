@@ -104,16 +104,27 @@ class SourcePatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=32)
     licence: str | None = Field(default=None, min_length=8, max_length=64)
     enabled: bool | None = None
+    is_public: bool | None = None
 
 
 @router.get("/api/quotesettings")
 def source_list(user=Depends(current_user)):
-    """我的行情源配置列表（证书编号只返回给本人）。"""
-    rows = get_conn().execute(
-        "SELECT id, name, provider, licence, enabled, created_at, updated_at"
+    """我的行情源配置列表（证书编号只返回给本人）。
+
+    public：其他用户公开且启用的行情源**名称列表**——只给名称，
+    证书/服务商细节/属主一律不给；公开源供未启用自己源的用户使用。
+    """
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, name, provider, licence, enabled, is_public,"
+        " created_at, updated_at"
         " FROM quote_source WHERE user_id = ? ORDER BY id", (user["id"],),
     ).fetchall()
-    return {"rows": [dict(r) for r in rows]}
+    public = [r["name"] for r in conn.execute(
+        "SELECT DISTINCT name FROM quote_source"
+        " WHERE is_public = 1 AND enabled = 1 AND user_id != ?"
+        " ORDER BY name", (user["id"],)).fetchall()]
+    return {"rows": [dict(r) for r in rows], "public": public}
 
 
 @router.post("/api/quotesettings", status_code=201)
@@ -148,7 +159,11 @@ def source_create(request: Request, body: SourceIn, user=Depends(current_user)):
 @router.patch("/api/quotesettings/{sid}")
 def source_update(sid: int, request: Request, body: SourcePatch,
                   user=Depends(current_user)):
-    """改配置：启用某源时自动停用同用户其它源（首页实时行情只走一个源）。"""
+    """改配置：启用某源时自动停用同用户其它源（首页实时行情只走一个源）。
+
+    is_public 公开后全站用户在未启用自己的源时可用，但他人只能看到名称，
+    证书等细节永不外泄；仅属主可改公开性。
+    """
     conn = get_conn()
     row = conn.execute(
         "SELECT * FROM quote_source WHERE id = ? AND user_id = ?",
@@ -171,7 +186,7 @@ def source_update(sid: int, request: Request, body: SourcePatch,
         licence = body.licence.strip()
         sets.append("licence = ?")
         params.append(licence)
-    toggled = False
+    toggled = shared = False
     if body.enabled is not None and bool(body.enabled) != bool(row["enabled"]):
         toggled = True
         if body.enabled:                       # 单启用：先全关再开这一个
@@ -180,6 +195,10 @@ def source_update(sid: int, request: Request, body: SourcePatch,
                              " WHERE user_id = ?", (user["id"],))
         sets.append("enabled = ?")
         params.append(1 if body.enabled else 0)
+    if body.is_public is not None and bool(body.is_public) != bool(row["is_public"]):
+        shared = True
+        sets.append("is_public = ?")
+        params.append(1 if body.is_public else 0)
     if sets:
         sets.append("updated_at = ?")
         params.append(datetime.now().isoformat(timespec="seconds"))
@@ -189,7 +208,10 @@ def source_update(sid: int, request: Request, body: SourcePatch,
     if toggled:
         log_op(user, "qsource_enable", "%s %s" % (name, "开" if body.enabled else "关"),
                client_ip(request), user_agent(request))
-    elif sets:
+    if shared:
+        log_op(user, "qsource_share", "%s %s" % (name, "公开" if body.is_public else "取消公开"),
+               client_ip(request), user_agent(request))
+    if not toggled and not shared and sets:
         log_op(user, "qsource_edit", name, client_ip(request), user_agent(request))
     return {"ok": True}
 
@@ -239,7 +261,8 @@ def quote_realtime(codes: str = Query(default="", max_length=1000),
                    user=Depends(current_user)):
     """我的自选实时行情：启用源 → 第三方实时；否则/失败 → 本地快照兜底。
 
-    codes 缺省时取本人自选列表（首页自选条一次请求直达）；
+    数据源优先级：本人启用的源 → 其他人公开且启用的源（只见名称，细节不外泄）
+    → 本地最新快照。codes 缺省时取本人自选列表（首页自选条一次请求直达）；
     返回与 /api/watchlist 同一套东财字段名（f12/f14/f2/f3/f6/f8），
     另带 live（是否实时）与 source（数据源描述）供前端展示。
     """
@@ -260,14 +283,22 @@ def quote_realtime(codes: str = Query(default="", max_length=1000),
     if not codelist:
         return {"rows": [], "source": None, "live": False, "error": None}
 
-    src = get_conn().execute(
+    conn = get_conn()
+    src = conn.execute(
         "SELECT * FROM quote_source WHERE user_id = ? AND enabled = 1",
         (user["id"],)).fetchone()
+    shared = False
+    if not src:   # 没启用自己的源 → 用其他人公开且启用的源（最早创建的优先）
+        src = conn.execute(
+            "SELECT * FROM quote_source WHERE enabled = 1 AND is_public = 1"
+            " ORDER BY id LIMIT 1").fetchone()
+        shared = src is not None
     error, rows, source = None, [], None
     if src and src["provider"] in PROVIDERS:
         try:
             rows = _mairui_fetch(src["licence"], codelist)
-            source = PROVIDERS[src["provider"]]["label"] + " · " + src["name"]
+            source = (PROVIDERS[src["provider"]]["label"] + " · " + src["name"]
+                      + ("（公共）" if shared else ""))
         except Exception as e:
             error = str(e)[:200]
     if rows:

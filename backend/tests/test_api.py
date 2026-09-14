@@ -944,3 +944,63 @@ def test_quote_realtime_fallback_and_live(client, monkeypatch):
     client.delete(f"/api/quotesettings/{sid}", headers=h)
     client.delete("/api/watchlist/600001", headers=h)
     assert client.get("/api/quote/realtime", headers=h).json()["rows"] == []
+
+
+def test_public_quotesource_sharing(client, monkeypatch):
+    """公开源：全站可用但他人只见名称；仅属主可改公开性；停用即全网停。"""
+    def fake_get(url, params=None, timeout=None):
+        return _Resp(_mr_ok(params["stock_codes"].split(",")))
+
+    monkeypatch.setattr(sr._mr, "get", fake_get)
+    hs = login(client, "admin", "admin123")
+    assert client.post("/api/quotesettings", headers=hs, json={
+        "name": "公共源", "provider": "mairui",
+        "licence": "LIC-SHARE-9999"}).status_code == 201
+    sid = [r for r in client.get("/api/quotesettings",
+                                 headers=hs).json()["rows"]
+           if r["name"] == "公共源"][0]["id"]
+    client.patch(f"/api/quotesettings/{sid}", headers=hs,
+                 json={"enabled": True, "is_public": True})
+    row = [r for r in client.get("/api/quotesettings",
+                                 headers=hs).json()["rows"] if r["id"] == sid][0]
+    assert row["enabled"] == 1 and row["is_public"] == 1
+    assert row["licence"] == "LIC-SHARE-9999"        # 证书只回属主
+
+    # 其他用户：自己的列表为空；public 只给名称，整个响应不含证书
+    _mkuser(client, hs, "pub_user", "user123")
+    hu = login(client, "pub_user", "user123")
+    d = client.get("/api/quotesettings", headers=hu).json()
+    assert d["rows"] == [] and d["public"] == ["公共源"]
+    assert "LIC-" not in client.get("/api/quotesettings", headers=hu).text
+
+    # 未启用自己的源 → 实时行情自动走公共源
+    client.post("/api/watchlist", headers=hu, json={"code": "600001"})
+    d = client.get("/api/quote/realtime", headers=hu).json()
+    assert d["live"] is True and "公共源" in d["source"] and "公共" in d["source"]
+
+    # 属主隔离：他人改不了 admin 的公开性/启停（404）
+    assert client.patch(f"/api/quotesettings/{sid}", headers=hu,
+                        json={"is_public": False}).status_code == 404
+    assert client.patch(f"/api/quotesettings/{sid}", headers=hu,
+                        json={"enabled": False}).status_code == 404
+
+    # 属主停用 → 公共源全网不可用（列表消失，行情回落快照）
+    client.patch(f"/api/quotesettings/{sid}", headers=hs, json={"enabled": False})
+    assert client.get("/api/quotesettings", headers=hu).json()["public"] == []
+    d = client.get("/api/quote/realtime", headers=hu).json()
+    assert d["live"] is False and d["source"] == "东方财富快照"
+
+    # 恢复启用后取消公开 → 同样回落
+    client.patch(f"/api/quotesettings/{sid}", headers=hs,
+                 json={"enabled": True, "is_public": False})
+    d = client.get("/api/quote/realtime", headers=hu).json()
+    assert d["live"] is False and d["source"] == "东方财富快照"
+
+    # 公开/取消公开动作有审计日志
+    hr = login(client, config.ROOT_USERNAME, config.ROOT_PASSWORD)
+    r = client.get("/api/logs", headers=hr, params={"action": "qsource_share"}).json()
+    assert any("公共源" in x["detail"] for x in r["rows"])
+
+    # 清理：删源删自选
+    client.delete(f"/api/quotesettings/{sid}", headers=hs)
+    client.delete("/api/watchlist/600001", headers=hu)

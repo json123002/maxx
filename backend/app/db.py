@@ -100,7 +100,8 @@ def init_db() -> None:
             PRIMARY KEY (user_id, code)
         );
 
-        -- 行情源设置：每用户独立的第三方行情接口配置（证书编号只回给本人）
+        -- 行情源设置：每用户独立的第三方行情接口配置（证书编号只回给本人；
+        -- is_public 公开后全站用户在未启用自己的源时可用，但只见名称）
         CREATE TABLE IF NOT EXISTS quote_source (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -108,6 +109,7 @@ def init_db() -> None:
             provider   TEXT NOT NULL,
             licence    TEXT NOT NULL,
             enabled    INTEGER NOT NULL DEFAULT 0,
+            is_public  INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT,
             UNIQUE (user_id, name)
@@ -180,6 +182,7 @@ def init_db() -> None:
     _migrate_quote_cols(conn)
     _migrate_users(conn)
     _migrate_op_logs(conn)
+    _migrate_quote_source(conn)
     conn.commit()
 
 
@@ -209,6 +212,14 @@ def _migrate_op_logs(conn) -> None:
     if "ua" not in have:
         conn.execute(
             "ALTER TABLE op_logs ADD COLUMN ua TEXT NOT NULL DEFAULT ''")
+
+
+def _migrate_quote_source(conn) -> None:
+    """老库补列:is_public 公开共享标记(公开后全站可用,他人仅见名称)。"""
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(quote_source)")}
+    if "is_public" not in have:
+        conn.execute(
+            "ALTER TABLE quote_source ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0")
 
 
 def seed_root(hash_password) -> None:

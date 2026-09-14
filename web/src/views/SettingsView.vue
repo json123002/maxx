@@ -13,6 +13,7 @@ const PROVIDER_LABEL = { mairui: "麦蕊智数" };
 const APPLY_URL = "https://mairui.club/packs";
 
 const rows = ref([]);
+const publicList = ref([]);   // 其他人公开的行情源（只展示名称，供未配置自己的源时使用）
 const loading = ref(false);
 
 async function load() {
@@ -20,6 +21,7 @@ async function load() {
   try {
     const d = await api("/api/quotesettings");
     rows.value = d.rows || [];
+    publicList.value = d.public || [];
   } catch (err) {
     if (err.message !== "unauthorized") message.error(err.message || "加载失败");
   } finally {
@@ -72,6 +74,20 @@ async function toggle(r) {
     if (err.message !== "unauthorized") message.error(err.message || "操作失败");
   } finally {
     togglings[r.id] = false;
+  }
+}
+
+/* ---------- 公开/取消公开（公开后全站可用，但他人只能看到名称） ---------- */
+async function togglePublic(r) {
+  try {
+    await api("/api/quotesettings/" + r.id, {
+      method: "PATCH", body: { is_public: !r.is_public },
+    });
+    if (!r.is_public)
+      message.success("已公开「" + r.name + "」：未启用自己行情源的用户也可使用（会消耗你的调用配额）");
+    load();
+  } catch (err) {
+    if (err.message !== "unauthorized") message.error(err.message || "操作失败");
   }
 }
 
@@ -165,6 +181,10 @@ onMounted(load);
                   @click="toggle(r)">
             {{ togglings[r.id] ? "切换中…" : r.enabled ? "启用中" : "已停用" }}
           </button>
+          <button class="tog pub" :class="{ act: r.is_public }" title="公开后全站用户都可使用该数据源（他人仅见名称，证书不外泄）；会消耗你的调用配额"
+                  @click="togglePublic(r)">
+            {{ r.is_public ? "已公开" : "未公开" }}
+          </button>
           <button class="testBtn" :disabled="tests[r.id] && tests[r.id].loading"
                   @click="test(r)">
             {{ tests[r.id] && tests[r.id].loading ? "测试中…" : "测试" }}
@@ -183,6 +203,12 @@ onMounted(load);
       <div v-else-if="!loading" class="empty">
         还没有行情源配置<br />
         上方填入服务商与证书编号添加；不配置也不影响使用，行情走系统默认数据源
+      </div>
+
+      <!-- 其他人公开的行情源：只能看到名称，直接可用 -->
+      <div v-if="publicList.length" class="pubNote">
+        公共行情源：{{ publicList.join("、") }}
+        —— 由其他用户公开共享，未启用自己的行情源时，首页自选实时行情自动使用它们
       </div>
     </section>
 
@@ -282,7 +308,13 @@ onMounted(load);
 }
 .tog:hover:not(:disabled) { border-color: var(--line-strong); color: var(--txt); }
 .tog.act { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); font-weight: 600; }
+.tog.pub { margin-left: 0; }
 .tog:disabled { opacity: .6; cursor: wait; }
+.pubNote {
+  margin-top: 16px; padding: 10px 14px;
+  border: 1px dashed var(--line-strong); border-radius: 10px;
+  color: var(--dim); font-size: 12px; line-height: 1.8;
+}
 .testBtn {
   flex-shrink: 0; cursor: pointer; font-family: inherit;
   background: none; border: 1px solid var(--line-strong); border-radius: 999px;
