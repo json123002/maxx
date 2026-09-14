@@ -1,0 +1,322 @@
+<script setup>
+/* ===== 设置 · 行情设置：每用户独立的第三方行情接口 =====
+   添加自己的行情源（服务商 + 证书编号），启用后首页「我的自选」实时行情
+   改走自己的接口；未配置或调用失败时自动回落系统默认数据源（东方财富快照）。
+   证书编号保存在后端数据库（quote_source 表，按用户隔离），后端代理请求，
+   浏览器不直连第三方——接口地址与证书都不会暴露给其他人。 */
+import { onMounted, reactive, ref } from "vue";
+import { message } from "ant-design-vue";
+import { api } from "../api/client";
+import ConfirmModal from "../components/ConfirmModal.vue";
+
+const PROVIDER_LABEL = { mairui: "麦蕊智数" };
+const APPLY_URL = "https://mairui.club/packs";
+
+const rows = ref([]);
+const loading = ref(false);
+
+async function load() {
+  loading.value = true;
+  try {
+    const d = await api("/api/quotesettings");
+    rows.value = d.rows || [];
+  } catch (err) {
+    if (err.message !== "unauthorized") message.error(err.message || "加载失败");
+  } finally {
+    loading.value = false;
+  }
+}
+
+/* ---------- 新增 ---------- */
+const form = reactive({ name: "", provider: "mairui", licence: "" });
+const saving = ref(false);
+
+async function add() {
+  if (!form.name.trim()) return message.warning("请填写配置名称");
+  if (!form.licence.trim()) return message.warning("请填写证书编号");
+  saving.value = true;
+  try {
+    await api("/api/quotesettings", {
+      method: "POST",
+      body: { name: form.name.trim(), provider: form.provider,
+              licence: form.licence.trim() },
+    });
+    message.success("已添加" + (rows.value.length ? "" : "并自动启用"));
+    form.name = "";
+    form.licence = "";
+    load();
+  } catch (err) {
+    if (err.message !== "unauthorized") message.error(err.message || "添加失败");
+  } finally {
+    saving.value = false;
+  }
+}
+
+/* ---------- 证书编号显示：默认打码，可点眼睛临时查看 ---------- */
+const reveal = reactive({});
+function mask(l) {
+  return l && l.length > 10 ? l.slice(0, 4) + "••••••••" + l.slice(-4) : "••••••••";
+}
+
+/* ---------- 启用/停用（同时只启用一个，启用即接管首页实时行情） ---------- */
+const togglings = reactive({});
+async function toggle(r) {
+  togglings[r.id] = true;
+  try {
+    await api("/api/quotesettings/" + r.id, {
+      method: "PATCH", body: { enabled: !r.enabled },
+    });
+    if (!r.enabled) message.success("已启用「" + r.name + "」，首页自选行情改走该数据源");
+    load();
+  } catch (err) {
+    if (err.message !== "unauthorized") message.error(err.message || "操作失败");
+  } finally {
+    togglings[r.id] = false;
+  }
+}
+
+/* ---------- 连通性测试（后端代理请求平安银行实时行情） ---------- */
+const tests = reactive({});
+async function test(r) {
+  tests[r.id] = { loading: true, ok: null, text: "" };
+  try {
+    const d = await api("/api/quotesettings/" + r.id + "/test", { method: "POST" });
+    tests[r.id] = d.ok
+      ? { loading: false, ok: true,
+          text: "通 · " + d.latency_ms + "ms · 平安银行 " + d.sample.p + " (" + d.sample.pc + "%)" }
+      : { loading: false, ok: false, text: d.error || "测试失败" };
+  } catch (err) {
+    tests[r.id] = { loading: false, ok: false,
+                    text: err.message === "unauthorized" ? "" : (err.message || "测试失败") };
+  }
+}
+
+/* ---------- 删除（二次确认） ---------- */
+const rmState = reactive({ open: false, row: null, loading: false });
+
+async function remove() {
+  const r = rmState.row;
+  if (!r) return;
+  rmState.loading = true;
+  try {
+    await api("/api/quotesettings/" + r.id, { method: "DELETE" });
+    rmState.open = false;
+    message.success("已删除「" + r.name + "」");
+    load();
+  } catch (err) {
+    if (err.message !== "unauthorized") message.error(err.message || "删除失败");
+  } finally {
+    rmState.loading = false;
+  }
+}
+
+onMounted(load);
+</script>
+
+<template>
+  <div class="setWrap">
+    <!-- ===== 行情设置 ===== -->
+    <section class="blk">
+      <div class="secHead">
+        <span class="secName">行情设置</span>
+        <span class="secNote">共 {{ rows.length }} 个数据源 · 启用其一即接管首页自选实时行情</span>
+        <button class="ghostBtn" :disabled="loading" @click="load">
+          {{ loading ? "刷新中…" : "刷新" }}
+        </button>
+      </div>
+
+      <p class="hint">
+        在这里添加自己的行情接口，决定首页实时展示的行情信息来源；每个人只影响自己的账号。
+        未配置或接口失败时自动回落系统默认数据源（东方财富快照）。
+        同一时刻只启用一个数据源，启用新的会自动停用旧的。
+        <template v-if="form.provider === 'mairui'">
+          证书编号在 <a :href="APPLY_URL" target="_blank" rel="noopener">麦蕊智数 · 我的接口</a> 页面查看。
+        </template>
+      </p>
+
+      <!-- 添加表单 -->
+      <div class="addForm">
+        <input v-model="form.name" class="fInput fName" maxlength="32"
+               placeholder="配置名称，如：我的麦蕊" @keyup.enter="add" />
+        <select v-model="form.provider" class="fInput fProv">
+          <option value="mairui">麦蕊智数</option>
+        </select>
+        <input v-model="form.licence" class="fInput fLic" maxlength="64"
+               placeholder="证书编号（Licence）" @keyup.enter="add" />
+        <button class="addBtn" :disabled="saving" @click="add">
+          {{ saving ? "添加中…" : "+ 添加" }}
+        </button>
+      </div>
+
+      <!-- 配置列表 -->
+      <div v-if="rows.length" class="list">
+        <div v-for="r in rows" :key="r.id" class="row" :class="{ on: r.enabled }">
+          <span class="nm">
+            <b>{{ r.name }}</b>
+            <i v-if="r.enabled" class="liveDot"></i>
+          </span>
+          <span class="prov">{{ PROVIDER_LABEL[r.provider] || r.provider }}</span>
+          <span class="lic" :class="{ rev: reveal[r.id] }">{{ reveal[r.id] ? r.licence : mask(r.licence) }}</span>
+          <button class="eye" :title="reveal[r.id] ? '隐藏' : '显示'"
+                  @click="reveal[r.id] = !reveal[r.id]">
+            {{ reveal[r.id] ? "隐藏" : "显示" }}
+          </button>
+          <button class="tog" :class="{ act: r.enabled }" :disabled="togglings[r.id]"
+                  @click="toggle(r)">
+            {{ togglings[r.id] ? "切换中…" : r.enabled ? "启用中" : "已停用" }}
+          </button>
+          <button class="testBtn" :disabled="tests[r.id] && tests[r.id].loading"
+                  @click="test(r)">
+            {{ tests[r.id] && tests[r.id].loading ? "测试中…" : "测试" }}
+          </button>
+          <button class="rmBtn" title="删除" @click="rmState.row = r; rmState.open = true">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+          <div v-if="tests[r.id] && tests[r.id].text" class="testLine"
+               :class="tests[r.id].ok ? 'ok' : 'bad'">{{ tests[r.id].text }}</div>
+        </div>
+      </div>
+
+      <div v-else-if="!loading" class="empty">
+        还没有行情源配置<br />
+        上方填入服务商与证书编号添加；不配置也不影响使用，行情走系统默认数据源
+      </div>
+    </section>
+
+    <!-- 删除二次确认 -->
+    <ConfirmModal
+      :open="rmState.open"
+      :title="'删除行情源 ' + (rmState.row ? '「' + rmState.row.name + '」' : '')"
+      :desc="rmState.row && rmState.row.enabled
+        ? '该数据源正在启用中，删除后首页自选行情回落到系统默认数据源。'
+        : '删除后不可恢复。'"
+      ok-text="删除"
+      :loading="rmState.loading"
+      @confirm="remove"
+      @close="rmState.open = false"
+    />
+  </div>
+</template>
+
+<style scoped>
+.setWrap { padding: 12px 0 48px; }
+
+.blk { margin-top: 10px; }
+.secHead {
+  display: flex; align-items: baseline; gap: 12px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--line);
+}
+.secName { font-size: 15px; font-weight: 650; letter-spacing: .04em; }
+.secName::before {
+  content: ""; display: inline-block; width: 3px; height: 12px; border-radius: 2px;
+  background: var(--brand-red); margin-right: 8px; vertical-align: -1px;
+}
+.secNote { color: var(--dim); font-size: 12px; }
+.ghostBtn {
+  margin-left: auto; background: none; border: 1px solid var(--line);
+  border-radius: 999px; padding: 4px 14px; font-size: 12px; font-family: inherit;
+  color: var(--dim); cursor: pointer; transition: color .15s, border-color .15s;
+}
+.ghostBtn:hover:not(:disabled) { color: var(--txt); border-color: var(--line-strong); }
+.ghostBtn:disabled { opacity: .55; cursor: not-allowed; }
+
+.hint { color: var(--dim); font-size: 12.5px; line-height: 1.9; margin: 14px 2px 0; }
+.hint a { color: var(--accent); }
+
+/* ===== 添加表单 ===== */
+.addForm {
+  display: flex; gap: 10px; margin-top: 14px;
+  background: var(--panel); border: 1px solid var(--line-strong);
+  border-radius: 12px; padding: 12px;
+}
+.fInput {
+  border: 1px solid var(--line); border-radius: 8px; background: transparent;
+  color: var(--txt); font-size: 13px; font-family: inherit;
+  padding: 8px 12px; outline: none; transition: border-color .15s;
+}
+.fInput:focus { border-color: var(--accent); }
+.fName { flex: 1.2; min-width: 120px; }
+.fProv { flex: .8; min-width: 100px; cursor: pointer; }
+.fProv option { color: #222; }
+.fLic { flex: 2; min-width: 160px; font-family: var(--mono); }
+.addBtn {
+  flex-shrink: 0; border: none; border-radius: 8px; padding: 8px 18px;
+  font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
+  color: var(--btn-txt); background: var(--btn-bg); transition: opacity .15s;
+}
+.addBtn:hover:not(:disabled) { opacity: .88; }
+.addBtn:disabled { opacity: .55; cursor: not-allowed; }
+
+/* ===== 配置列表 ===== */
+.row {
+  position: relative;
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 8px; border-bottom: 1px solid var(--line);
+  transition: background .12s;
+}
+.row:hover { background: var(--hover); }
+.row.on .nm b { color: var(--accent); }
+.nm { display: flex; align-items: center; gap: 8px; min-width: 140px; }
+.nm b { font-size: 13.5px; }
+.liveDot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.prov { color: var(--dim); font-size: 12px; min-width: 70px; }
+.lic { color: var(--dim); font-family: var(--mono); font-size: 12px; }
+.lic.rev { color: var(--txt); }
+.eye {
+  background: none; border: none; padding: 2px 4px; cursor: pointer;
+  color: var(--dim); font-size: 11px; font-family: inherit;
+  text-decoration: underline dotted; transition: color .15s;
+}
+.eye:hover { color: var(--txt); }
+.tog {
+  margin-left: auto; flex-shrink: 0; cursor: pointer; font-family: inherit;
+  background: none; border: 1px solid var(--line); border-radius: 999px;
+  padding: 3px 12px; font-size: 12px; color: var(--dim);
+  transition: all .15s;
+}
+.tog:hover:not(:disabled) { border-color: var(--line-strong); color: var(--txt); }
+.tog.act { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); font-weight: 600; }
+.tog:disabled { opacity: .6; cursor: wait; }
+.testBtn {
+  flex-shrink: 0; cursor: pointer; font-family: inherit;
+  background: none; border: 1px solid var(--line-strong); border-radius: 999px;
+  padding: 3px 12px; font-size: 12px; color: var(--txt);
+  transition: all .15s;
+}
+.testBtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.testBtn:disabled { opacity: .6; cursor: wait; }
+.rmBtn {
+  flex-shrink: 0; width: 26px; height: 26px;
+  background: none; border: none; border-radius: 50%; cursor: pointer;
+  color: var(--dim); display: inline-flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity .15s, color .15s, background .15s;
+}
+.row:hover .rmBtn { opacity: 1; }
+.rmBtn:hover { color: var(--up); background: var(--panel-2); }
+@media (hover: none) { .rmBtn { opacity: 1; } }
+
+/* 测试结果：整行下方的细提示行 */
+.testLine {
+  position: absolute; left: 8px; bottom: -1px; transform: translateY(100%);
+  font-size: 11.5px; font-family: var(--mono); padding: 3px 0;
+}
+.testLine.ok { color: var(--up); }
+.testLine.bad { color: var(--down); }
+
+.empty {
+  padding: 48px 0; text-align: center; color: var(--dim);
+  font-size: 13px; line-height: 2;
+}
+
+@media (max-width: 720px) {
+  .addForm { flex-wrap: wrap; }
+  .fName, .fProv, .fLic { flex: 1 1 45%; }
+  .prov, .lic, .eye { display: none; }
+}
+</style>

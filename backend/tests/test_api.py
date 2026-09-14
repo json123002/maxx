@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app import config, db, kline, scheduler  # noqa: E402
 from app.fetcher import limit_flags  # noqa: E402
 from app.main import app  # noqa: E402
+from app.routes import settings_routes as sr  # noqa: E402
 from app.routes import watchlist_routes as wr  # noqa: E402
 from app.routes.quote_routes import build_filter_sql  # noqa: E402
 
@@ -805,3 +806,141 @@ def test_desk_op_logs(client):
     assert client.post("/api/track", headers=ha,
                        json={"action": "f10_view", "detail": "600001 测试钢铁"}
                        ).status_code == 200
+
+
+# ===== 行情源设置 + 首页实时行情（第三方请求全部 mock，不触网） =====
+def _mr_ok(codes):
+    """麦蕊 ssjy_more 批量返回体：dm/p/pc/hs(或 tr)/cje/t。"""
+    return [{"dm": c, "p": 10.0, "pc": 1.23, "hs": 2.5, "cje": 1e8,
+             "t": "2026-09-14 15:00:00"} for c in codes]
+
+
+class _Resp:
+    def __init__(self, payload):
+        self._p = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._p
+
+
+def test_quotesource_lifecycle(client, monkeypatch):
+    """配置 CRUD：首个自动启用、单启用互斥、按用户隔离、证书只回本人。"""
+    h = login(client, "admin", "admin123")
+    assert client.get("/api/quotesettings").status_code == 401
+    assert client.get("/api/quotesettings", headers=h).json()["rows"] == []
+    # 非法服务商 / 证书格式不对 / 同名冲突
+    assert client.post("/api/quotesettings", headers=h, json={
+        "name": "x", "provider": "others", "licence": "LIC-AAAA-1234"}).status_code == 400
+    assert client.post("/api/quotesettings", headers=h, json={
+        "name": "x", "provider": "mairui", "licence": "短证号"}).status_code in (400, 422)
+    # 首个配置自动启用
+    assert client.post("/api/quotesettings", headers=h, json={
+        "name": "我的麦蕊", "provider": "mairui",
+        "licence": "LIC-AAAA-1234"}).status_code == 201
+    rows = client.get("/api/quotesettings", headers=h).json()["rows"]
+    assert len(rows) == 1 and rows[0]["enabled"] == 1
+    assert rows[0]["licence"] == "LIC-AAAA-1234"     # 证书只回给本人
+    sid1 = rows[0]["id"]
+    # 第二个不自动启用；启用它则第一个自动停用（同时只启用一个）
+    assert client.post("/api/quotesettings", headers=h, json={
+        "name": "备用", "provider": "mairui",
+        "licence": "LIC-BBBB-5678"}).status_code == 201
+    sid2 = [r for r in client.get("/api/quotesettings",
+                                  headers=h).json()["rows"] if r["name"] == "备用"][0]["id"]
+    assert client.patch(f"/api/quotesettings/{sid2}", headers=h,
+                        json={"enabled": True}).status_code == 200
+    rows = client.get("/api/quotesettings", headers=h).json()["rows"]
+    assert {r["name"]: r["enabled"] for r in rows} == {"我的麦蕊": 0, "备用": 1}
+    # 同名冲突 / 改证书
+    assert client.post("/api/quotesettings", headers=h, json={
+        "name": "备用", "provider": "mairui",
+        "licence": "LIC-CCCC-9012"}).status_code == 409
+    client.patch(f"/api/quotesettings/{sid1}", headers=h,
+                 json={"licence": "LIC-CCDD-3456"})
+    rows = {r["id"]: r for r in client.get("/api/quotesettings", headers=h).json()["rows"]}
+    assert rows[sid1]["licence"] == "LIC-CCDD-3456"
+    # 按用户隔离：bob 看不到 admin 的配置，也不能改动
+    hs = login(client, "admin", "admin123")
+    _mkuser(client, hs, "src_user", "user123")
+    hb = login(client, "src_user", "user123")
+    assert client.get("/api/quotesettings", headers=hb).json()["rows"] == []
+    assert client.patch(f"/api/quotesettings/{sid2}", headers=hb,
+                        json={"enabled": True}).status_code == 404
+    assert client.delete(f"/api/quotesettings/{sid2}", headers=hb).status_code == 200  # 幂等
+    rows = {r["id"]: r for r in client.get("/api/quotesettings", headers=h).json()["rows"]}
+    assert rows[sid2]["enabled"] == 1                 # bob 的删除动不到 admin 的配置
+    # 清理 bob
+    uid = [u["id"] for u in client.get("/api/admin/users",
+                                       headers=hs).json()["users"]
+           if u["username"] == "src_user"][0]
+    client.delete(f"/api/admin/users/{uid}", headers=hs)
+    # 收尾停用，让 realtime 用例从"无启用源"状态开始
+    client.patch(f"/api/quotesettings/{sid2}", headers=h, json={"enabled": False})
+
+
+def test_quote_realtime_fallback_and_live(client, monkeypatch):
+    """/api/quote/realtime：启用源走实时(归一化东财字段)，失败/无源回落快照。"""
+    h = login(client, "admin", "admin123")
+    client.post("/api/watchlist", headers=h, json={"code": "600001"})
+
+    def fake_get(url, params=None, timeout=None):
+        return _Resp(_mr_ok(params["stock_codes"].split(",")))
+
+    monkeypatch.setattr(sr._mr, "get", fake_get)
+    # 无启用源 → 快照兜底（600001 在 SAMPLE 里 f2=10.0）
+    d = client.get("/api/quote/realtime", headers=h).json()
+    assert d["live"] is False and d["source"] == "东方财富快照"
+    assert d["rows"][0]["f12"] == "600001" and d["rows"][0]["f14"] == "测试钢铁"
+    assert d["rows"][0]["f2"] == 10.0
+
+    # 启用源 → 实时，字段归一化 + 名称从快照补齐
+    sid = client.get("/api/quotesettings", headers=h).json()["rows"][0]["id"]
+    client.patch(f"/api/quotesettings/{sid}", headers=h, json={"enabled": True})
+    d = client.get("/api/quote/realtime", headers=h).json()
+    assert d["live"] is True and "麦蕊智数" in d["source"]
+    row = d["rows"][0]
+    assert (row["f12"], row["f2"], row["f3"], row["f8"]) == ("600001", 10.0, 1.23, 2.5)
+    assert row["f14"] == "测试钢铁" and row["f6"] == 1e8
+
+    # 批量接口换手字段是 tr 的老接口形态：hs 缺失时 tr 兜底
+    def fake_tr(url, params=None, timeout=None):
+        items = _mr_ok(params["stock_codes"].split(","))
+        for it in items:
+            it.pop("hs")
+            it["tr"] = 3.7
+        return _Resp(items)
+
+    monkeypatch.setattr(sr._mr, "get", fake_tr)
+    d = client.get("/api/quote/realtime?codes=600001,300001", headers=h).json()
+    assert [r["f8"] for r in d["rows"]] == [3.7, 3.7]
+
+    # 源调用失败 → 报错信息透出，行情回落快照，页面不空窗
+    def boom(*a, **k):
+        raise ConnectionError("mairui down")
+    monkeypatch.setattr(sr._mr, "get", boom)
+    d = client.get("/api/quote/realtime", headers=h).json()
+    assert d["live"] is False and "mairui down" in d["error"]
+    assert d["rows"][0]["f2"] == 10.0
+
+    # 配额用尽等业务错误（返回非列表体）同样回落
+    def quota(url, params=None, timeout=None):
+        return _Resp({"msg": "101"})
+
+    monkeypatch.setattr(sr._mr, "get", quota)
+    d = client.get("/api/quote/realtime", headers=h).json()
+    assert d["live"] is False and d["error"] and d["rows"][0]["f3"] == 10.01
+
+    # 参数校验 + 测试端点（恢复可用 mock 后再测）
+    assert client.get("/api/quote/realtime?codes=abc", headers=h).status_code == 400
+    assert client.get("/api/quote/realtime").status_code == 401
+    monkeypatch.setattr(sr._mr, "get", fake_get)
+    d = client.post(f"/api/quotesettings/{sid}/test", headers=h).json()
+    assert d["ok"] is True and d["sample"]["p"] == 10.0
+
+    # 清理：删除源与自选，不影响其它用例
+    client.delete(f"/api/quotesettings/{sid}", headers=h)
+    client.delete("/api/watchlist/600001", headers=h)
+    assert client.get("/api/quote/realtime", headers=h).json()["rows"] == []

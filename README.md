@@ -16,13 +16,14 @@ maxx/
       scheduler.py    交易时段每 3 分钟抓数 + 每交易日 15:06 落历史
       routes/         auth（登录/改密）· admin（用户管理）· quote（行情查询）
                         · watchlist（自选股）· radar（涨停雷达·一进二粗筛）
+                        · settings（行情源设置 + 首页实时行情代理）
                         · log（操作日志，仅隐藏 root）
-    tests/            pytest（30 个用例，独立临时库，不触网）
+    tests/            pytest（35 个用例，独立临时库，不触网）
   web/                Vue3 前端工程（Vite + vue-router + ant-design-vue，包管理只用 pnpm）
     src/views/        LoginView(转盘登录) / HomeView(工作台) / ScreenerView(换手率筛选)
                         / WatchlistView(自选股) / StockView(个股详情+日K阶段标注)
                         / HistoryView(历史榜单) / RadarView(涨停雷达·一进二)
-                        / LogView(操作日志) / AdminView(用户管理)
+                        / LogView(操作日志) / AdminView(用户管理) / SettingsView(行情源设置)
     src/layout/       MainLayout(左侧菜单+顶栏) / PwdModal(修改密码)
     src/screener/     筛选页组合式函数与组件（FilterPanel / ResultsPanel / metrics）
     src/stock/        K 线图与日K阶段识别（phases.js，含 node --test 回归）
@@ -87,6 +88,8 @@ python deploy/verify_frontend.py     # 只读核对线上前端版本及全部�
 | GET /api/health | 服务与最近抓取状态（公开） |
 | GET/POST/PATCH/DELETE /api/admin/users | 用户管理（仅管理员） |
 | GET/POST /api/watchlist · DELETE /api/watchlist/{code} · GET /api/watchlist/search | 自选股（登录用户） |
+| GET/POST /api/quotesettings · PATCH/DELETE /api/quotesettings/{id} · POST …/{id}/test | 行情源设置（按用户隔离，证书编号只回本人） |
+| GET /api/quote/realtime | 首页自选实时行情：启用源走第三方（后端代理），否则回落本地快照 |
 | POST /api/track · GET /api/logs | 行为埋点 / 操作日志（后者仅隐藏 root） |
 
 ## 数据说明
@@ -94,6 +97,8 @@ python deploy/verify_frontend.py     # 只读核对线上前端版本及全部�
 - 行情来自东方财富公开接口，服务器交易时段（9:15-11:30 / 13:00-15:05）每 3 分钟抓一次全市场快照。
 - `latest` 表供实时查询；`history` 表每交易日收盘落库一份，供后续复盘扩展。
 - 抓数失败时保留上一份快照，接口返回 `stale: true`，页面徽标会标注「抓取失败中」。
+- 用户可在「设置 · 行情设置」添加自己的行情源（如麦蕊智数，只需填证书编号）并启用：
+  首页「我的自选」实时行情改走该接口（后端代理，证书不出服务器），失败自动回落快照。
 - 个股分析弹窗的 K 线/资金流仍由浏览器直连东财/腾讯/新浪 JSONP（与本服务无关）。
 
 本项目仅作客观数据筛选，不构成投资建议。

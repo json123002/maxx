@@ -96,7 +96,12 @@
       <div class="secHead">
         <span class="secName">我的自选</span>
         <span class="secEn">Watchlist</span>
+        <span v-if="watchSrc" class="secNote" :class="{ live: watchLive }"
+              :title="watchLive ? '实时行情来自你在设置里启用的行情源' : '未启用自定义行情源,展示最新快照'">
+          <i class="srcDot" :class="{ live: watchLive }"></i>{{ watchSrc }}
+        </span>
         <router-link to="/watchlist" class="secMore">管理自选 →</router-link>
+        <router-link to="/settings" class="secMore">行情设置 →</router-link>
       </div>
       <div v-if="watchRows.length" class="watchStrip">
         <router-link v-for="r in watchRows" :key="r.f12" class="wCard" :to="'/stock/' + r.f12">
@@ -111,7 +116,8 @@
         </router-link>
       </div>
       <div v-else class="watchEmpty">
-        还没有自选股，去 <router-link to="/watchlist">添加自选</router-link> 或在筛选结果里点 ★
+        还没有自选股，去 <router-link to="/watchlist">添加自选</router-link> 或在筛选结果里点 ★<br />
+        也可以在 <router-link to="/settings">设置 · 行情设置</router-link> 里配置自己的行情接口
       </div>
     </section>
 
@@ -173,11 +179,17 @@ const senti = reactive({ temp: null, level: "", lv: 3 });
 const sentiTitle = ref("");
 const hot = ref([]);
 const watchRows = ref([]);   // 我的自选(最多展示 8 只)
+const watchSrc = ref("");    // 行情来源描述(如 "麦蕊智数 · 我的麦蕊" / "东方财富快照")
+const watchLive = ref(false);// 是否实时(启用了自己的行情源)
 
+// 自选条行情:走 /api/quote/realtime——启用了自己的行情源则取实时,
+// 否则/失败自动回落最新快照(接口内兜底,codes 缺省取本人自选)
 async function loadWatch() {
   try {
-    const d = await api("/api/watchlist");
+    const d = await api("/api/quote/realtime");
     watchRows.value = (d.rows || []).slice(0, 8);
+    watchSrc.value = d.source || "";
+    watchLive.value = !!d.live;
   } catch { /* 自选加载失败不影响主页其他区块 */ }
 }
 
@@ -305,6 +317,19 @@ onUnmounted(() => clearInterval(timer));
 }
 .secMore { margin-left: auto; font-size: 12.5px; color: var(--dim); text-decoration: none; transition: color .15s; }
 .secMore:hover { color: var(--accent); }
+.secMore + .secMore { margin-left: 0; }
+.secNote {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--dim); font-family: var(--mono);
+}
+.srcDot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--dim);
+  opacity: .6;
+}
+.srcDot.live { background: var(--accent); opacity: 1; box-shadow: 0 0 0 3px var(--accent-dim); }
+/* 两个链接时:来源说明在中间,链接保持右对齐 */
+.secNote + .secMore { margin-left: auto; }
+.secNote + .secMore + .secMore { margin-left: 0; }
 
 /* ===== 市场脉搏 ===== */
 .pulse {

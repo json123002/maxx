@@ -100,6 +100,19 @@ def init_db() -> None:
             PRIMARY KEY (user_id, code)
         );
 
+        -- 行情源设置：每用户独立的第三方行情接口配置（证书编号只回给本人）
+        CREATE TABLE IF NOT EXISTS quote_source (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name       TEXT NOT NULL,
+            provider   TEXT NOT NULL,
+            licence    TEXT NOT NULL,
+            enabled    INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT,
+            UNIQUE (user_id, name)
+        );
+
         CREATE TABLE IF NOT EXISTS desk_star (
             user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             code       TEXT NOT NULL,
