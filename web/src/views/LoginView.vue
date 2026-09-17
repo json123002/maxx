@@ -107,14 +107,16 @@
                     </a-form-item>
 
                     <p class="cardNote">账号由管理员创建，不开放注册</p>
-
-                    <!-- 完整风险声明：登录页常驻展示，与首次登录强制确认互为印证 -->
-                    <div class="riskDisc">
-                        <p class="riskDiscTitle">风险声明</p>
-                        <p>本站为个人学习使用的行情数据整理工具，全部内容来自公开行情数据的客观统计与展示，不构成任何投资建议、证券分析意见或买卖依据。</p>
-                        <p>股市有风险，投资须谨慎。任何基于本站信息作出的决策由使用者本人独立完成，盈亏由使用者本人承担，与本站及站长无关。</p>
-                    </div>
+                    <p class="riskLink" @click="discOpen = true">使用前请阅读《风险声明》</p>
                 </a-form>
+
+                <!-- 风险声明弹窗:卡片保持简洁,全文点开查看(与首次登录强制确认互为印证) -->
+                <a-modal v-model:open="discOpen" title="风险声明" :footer="null" :width="480">
+                    <div class="riskModalBody">
+                        <p>本站为个人学习使用的行情数据整理工具，全部内容来自公开行情数据的<strong>客观统计与展示</strong>，不构成任何投资建议、证券分析意见或买卖依据。</p>
+                        <p>股市有风险，投资须谨慎。任何基于本站信息作出的决策由<strong>使用者本人独立完成，盈亏由使用者本人承担</strong>，与本站及站长无关。</p>
+                    </div>
+                </a-modal>
             </div>
         </main>
     </div>
@@ -231,6 +233,7 @@ const password = ref('');
 const rememberMe = ref(false);
 const loading = ref(false);
 const loginErr = ref('');
+const discOpen = ref(false);   // 风险声明弹窗
 
 /* 记住账号：只存用户名，绝不存密码 */
 const REMEMBER_KEY = 'ts-login-name';
@@ -877,31 +880,27 @@ onUnmounted(() => {
     color: rgba(219, 228, 243, 0.32);
 }
 
-/* 登录卡片内风险声明：弱化展示但常驻可见 */
-.riskDisc {
-    margin-top: 18px;
-    padding: 12px 14px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.03);
+/* 风险声明入口:卡片底部一行小字链接,点击弹窗看全文 */
+.riskLink {
+    margin: 8px 0 0;
     font-size: 12px;
-    line-height: 1.8;
-    color: rgba(219, 228, 243, 0.45);
+    text-align: center;
+    color: rgba(255, 152, 149, 0.55);
+    cursor: pointer;
+    transition: color 0.2s ease;
 }
 
-.riskDisc p {
-    margin: 0;
+.riskLink:hover {
+    color: rgba(255, 152, 149, 0.9);
 }
 
-.riskDisc p + p {
-    margin-top: 6px;
+.riskModalBody p {
+    line-height: 1.9;
+    margin: 0 0 10px;
 }
 
-.riskDiscTitle {
-    font-weight: 600;
-    color: rgba(255, 152, 149, 0.85);
-    letter-spacing: 2px;
-    margin-bottom: 6px !important;
+.riskModalBody p:last-child {
+    margin-bottom: 0;
 }
 
 /* ================= 浅色主题 ================= */
@@ -1086,13 +1085,11 @@ onUnmounted(() => {
     color: rgba(10, 37, 64, 0.4);
 }
 
-.light .riskDisc {
-    border-color: rgba(10, 37, 64, 0.1);
-    background: rgba(10, 37, 64, 0.03);
-    color: rgba(10, 37, 64, 0.55);
+.light .riskLink {
+    color: rgba(207, 19, 34, 0.55);
 }
 
-.light .riskDiscTitle {
+.light .riskLink:hover {
     color: #cf1322;
 }
 
