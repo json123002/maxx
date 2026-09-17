@@ -199,11 +199,15 @@ def _migrate_quote_cols(conn) -> None:
 
 
 def _migrate_users(conn) -> None:
-    """老库补列:hidden 标记(隐藏 root 不出现在用户管理列表)。"""
+    """老库补列:hidden 标记(隐藏 root 不出现在用户管理列表);
+    risk_ack_at 风险声明确认时间(空 = 未确认,前端据此弹强制确认窗)。"""
     have = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
     if "hidden" not in have:
         conn.execute(
             "ALTER TABLE users ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+    if "risk_ack_at" not in have:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN risk_ack_at TEXT")
 
 
 def _migrate_op_logs(conn) -> None:

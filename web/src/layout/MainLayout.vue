@@ -79,6 +79,25 @@
     </a-layout>
 
     <PwdModal :open="pwdOpen" @close="pwdOpen = false" />
+
+    <!-- 风险声明确认:首次登录强制确认(不可关闭/不可跳过),确认记录落库留痕 -->
+    <a-modal :open="!!(authState.user && !authState.user.risk_ack)"
+             title="使用前请阅读并确认"
+             :closable="false" :maskClosable="false" :keyboard="false"
+             :footer="null" :width="520">
+      <div class="riskAckBody">
+        <p>本站为个人学习使用的行情数据整理工具，全部内容来自公开行情数据的<strong>客观统计与展示</strong>，不构成任何投资建议、证券分析意见或买卖依据。</p>
+        <p>页面中的形态、信号、参考位等均为<strong>历史数据的统计描述</strong>，不代表对未来走势的预测，更不保证任何收益。</p>
+        <p>股市有风险，投资须谨慎。任何基于本站信息作出的决策由<strong>使用者本人独立完成，盈亏由使用者本人承担</strong>，与本站及站长无关。</p>
+        <a-checkbox v-model:checked="ackChecked" class="ackCheck">
+          我已阅读并理解上述声明，自愿独立决策、自担风险
+        </a-checkbox>
+        <a-button type="primary" block size="large" class="ackBtn"
+                  :disabled="!ackChecked" :loading="ackLoading" @click="onAck">
+          确认并进入
+        </a-button>
+      </div>
+    </a-modal>
   </a-layout>
 </template>
 
@@ -91,6 +110,7 @@ import {
   FileTextOutlined, HistoryOutlined, FireOutlined, SettingOutlined, RadarChartOutlined,
 } from "@ant-design/icons-vue";
 import { authState, logout } from "../stores/auth";
+import { api } from "../api/client";
 import { quoteSource, loadQuoteSource, activePersonalSource } from "../stores/quotesource";
 import { themeMode, toggleTheme } from "../utils/theme";
 import PwdModal from "./PwdModal.vue";
@@ -148,6 +168,22 @@ function onMenu({ key }) { router.push(key); }
 async function onLogout() {
   await logout();
   router.replace("/login");
+}
+
+// ===== 风险声明确认(未确认的用户被弹窗挡住,确认后才可用) =====
+const ackChecked = ref(false);
+const ackLoading = ref(false);
+async function onAck() {
+  if (!ackChecked.value || ackLoading.value) return;
+  ackLoading.value = true;
+  try {
+    await api("/api/auth/risk-ack", { method: "POST" });
+    authState.user = { ...authState.user, risk_ack: true };
+  } catch (e) {
+    /* 失败保持弹窗,用户可重试 */
+  } finally {
+    ackLoading.value = false;
+  }
 }
 </script>
 
@@ -241,6 +277,11 @@ export default { components: { SunIcon, MoonIcon } };
 .edgeToggle:hover { color: var(--txt); border-color: var(--dim); box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
 /* 触屏无 hover:常驻显示 */
 @media (hover: none) { .edgeToggle { opacity: 1; } }
+
+/* ===== 风险确认弹窗内容 ===== */
+.riskAckBody p { line-height: 1.9; margin: 0 0 10px; }
+.ackCheck { margin: 6px 0 16px; font-size: 13px; }
+.ackBtn { letter-spacing: 2px; }
 
 /* ===== 内容区:桌面固定一屏(筛选页表格内部滚动),子页可自行滚动 ===== */
 .mainSide { min-width: 0; }

@@ -149,15 +149,15 @@ import { version } from "../../package.json";
 // 功能入口:与登录页转盘同一套选题,后续功能上线时补上 path 即可
 const features = [
   { title: "换手率筛选", icon: FundViewOutlined, path: "/screener",
-    desc: "量价先行,按换手率/涨跌幅/行业/自定义指标一键锁定活跃强势股。" },
+    desc: "按换手率/涨跌幅/行业/自定义指标统计全市场个股活跃度。" },
   { title: "涨停雷达", icon: FireOutlined, path: "/radar",
     desc: "一进二打板候选:昨日首板 × 今日竞价/量能/资金六维粗筛。" },
-  { title: "龙头战法", icon: CrownOutlined, path: "",
-    desc: "主线合力所向,骑上龙头不放手。" },
-  { title: "主力护航", icon: FundOutlined, path: "",
-    desc: "主力资金流向一目了然,跟庄不追高。" },
-  { title: "趋势长红", icon: RocketOutlined, path: "",
-    desc: "顺势而为,账户长红,一路长红。" },
+  { title: "板块强度", icon: CrownOutlined, path: "",
+    desc: "按板块强度梳理领涨个股,仅作形态统计。" },
+  { title: "资金流向", icon: FundOutlined, path: "",
+    desc: "资金流向的客观展示,供盘中观察与研究。" },
+  { title: "趋势统计", icon: RocketOutlined, path: "",
+    desc: "趋势形态的统计与复盘,不构成收益预期。" },
 ];
 
 // ===== 刊头:日期 / 星期 / 分时段问候 =====

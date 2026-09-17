@@ -31,10 +31,12 @@ def _too_many_failures(username: str, ip: str) -> bool:
 
 def _public_user(u) -> dict:
     """对外用户对象：root = 种子管理员账号(用户名 = TS_ADMIN_USERNAME)；
-    hidden = 隐藏 root 账号(前端据此显示日志菜单)。"""
+    hidden = 隐藏 root 账号(前端据此显示日志菜单)；
+    risk_ack = 是否已确认风险声明(前端据此弹强制确认窗)。"""
     return {"id": u["id"], "username": u["username"], "role": u["role"],
             "root": u["username"] == config.ADMIN_USERNAME,
-            "hidden": bool(u["hidden"])}
+            "hidden": bool(u["hidden"]),
+            "risk_ack": bool(u["risk_ack_at"])}
 
 
 class LoginIn(BaseModel):
@@ -57,7 +59,8 @@ def login(body: LoginIn, request: Request):
                "login_fail", "触发限流：失败次数过多", ip, ua)
         raise HTTPException(429, "尝试次数过多，请 %s 分钟后再试" % _FAIL_WINDOW_MIN)
     row = get_conn().execute(
-        "SELECT id, username, password_hash, role, enabled, hidden FROM users"
+        "SELECT id, username, password_hash, role, enabled, hidden, risk_ack_at"
+        " FROM users"
         " WHERE username = ?",
         (username,),
     ).fetchone()
@@ -79,6 +82,19 @@ def logout(request: Request, user=Depends(current_user)):
     drop_session(user["token"])
     log_op(user, "logout", "", client_ip(request), user_agent(request))
     return {"ok": True}
+
+
+@router.post("/risk-ack")
+def risk_ack(request: Request, user=Depends(current_user)):
+    """确认风险声明：记录确认时间（首次确认即留痕，重复调用幂等）。"""
+    conn = get_conn()
+    now = datetime.now().isoformat(timespec="seconds")
+    with conn:
+        conn.execute("UPDATE users SET risk_ack_at = ?"
+                     " WHERE id = ? AND risk_ack_at IS NULL",
+                     (now, user["id"]))
+    log_op(user, "risk_ack", "确认风险声明", client_ip(request), user_agent(request))
+    return {"ok": True, "risk_ack_at": now}
 
 
 @router.get("/me")

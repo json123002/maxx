@@ -55,7 +55,7 @@ def _user_from_token(token: str):
     if not token:
         return None
     row = get_conn().execute(
-        "SELECT u.id, u.username, u.role, u.enabled, u.hidden"
+        "SELECT u.id, u.username, u.role, u.enabled, u.hidden, u.risk_ack_at"
         " FROM sessions s JOIN users u ON u.id = s.user_id"
         " WHERE s.token = ? AND s.expires_at > ?",
         (token, datetime.now().isoformat(timespec="seconds")),

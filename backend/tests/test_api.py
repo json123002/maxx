@@ -88,6 +88,22 @@ def test_seed_admin_login(client):
     assert me["username"] == "admin" and me["role"] == "admin" and me["root"] is True
 
 
+def test_risk_ack_flow(client):
+    """风险声明:未确认 → risk_ack=False;确认后落库 → True;重复确认幂等。"""
+    h = login(client, "admin", "admin123")
+    me = client.get("/api/auth/me", headers=h).json()["user"]
+    assert me["risk_ack"] is False
+    r = client.post("/api/auth/risk-ack", headers=h)
+    assert r.status_code == 200 and r.json()["ok"] is True
+    me = client.get("/api/auth/me", headers=h).json()["user"]
+    assert me["risk_ack"] is True
+    # 重复确认不报错、时间不被覆盖语义(幂等返回 ok)
+    r = client.post("/api/auth/risk-ack", headers=h)
+    assert r.status_code == 200
+    # 未登录不可确认
+    assert client.post("/api/auth/risk-ack").status_code == 401
+
+
 # ===== 筛选 SQL =====
 def _args(**kw):
     base = dict(markets=[], tmin=None, tmax=None, cmin=None, cmax=None,
