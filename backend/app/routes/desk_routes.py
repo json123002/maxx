@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from ..db import get_conn
 from ..oplog import client_ip, log_op, user_agent
 from ..security import current_user
+from .. import thsflow
 from .watchlist_routes import LETTER_RE, _fkey_row, _suggest_astock
 
 router = APIRouter(prefix="/api/desk", tags=["desk"])
@@ -527,3 +528,14 @@ def f10(code: str, user=Depends(current_user)):
             for k in [k for k, v in _f10_cache.items() if v[0] <= now]:
                 _f10_cache.pop(k, None)
     return payload
+
+
+# ---------- 同花顺挂单异动 ----------
+# 采集逻辑在 app/thsflow.py:调度器交易时段每 5s 轮询全市场事件流,按股累积。
+
+@router.get("/ths/events/{code}")
+def ths_events(code: str, user=Depends(current_user)):
+    """该股今日挂单异动(L2 特大挂买/撤单/压托单;盘中启动只含启动后的事件)。"""
+    if not CODE_RE.match(code):
+        raise HTTPException(400, "股票代码须为 6 位数字")
+    return thsflow.events_of(code)

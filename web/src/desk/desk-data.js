@@ -104,6 +104,9 @@ export const removeStar = (code) =>
   api("/api/desk/star/" + code, { method: "DELETE" });
 export const fetchF10 = (code) => api("/api/desk/f10/" + code);
 
+/* ---------- 同花顺挂单异动(后端采集):L2 特大挂买/撤单/压托单 ---------- */
+export const fetchThsEvents = (code) => api("/api/desk/ths/events/" + code);
+
 /* ---------- 工作台股票池(独立于自选) ---------- */
 export const fetchStocks = () => api("/api/desk/stocks");
 export const searchStocks = (kw) =>

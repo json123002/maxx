@@ -1,11 +1,11 @@
-"""抓数调度：交易时段每 N 分钟刷 latest；每交易日 15:06 落 history。"""
+"""抓数调度：交易时段每 N 分钟刷 latest、每 30 秒采同花顺盘口异动；每交易日 15:06 落 history。"""
 import logging
 import threading
 from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import config, db, fetcher
+from . import config, db, fetcher, thsflow
 
 log = logging.getLogger("scheduler")
 _lock = threading.Lock()
@@ -94,6 +94,9 @@ def start() -> None:
     _sched = BackgroundScheduler(timezone="Asia/Shanghai")
     _sched.add_job(fetch_job, "interval", minutes=config.FETCH_INTERVAL_MIN,
                    id="fetch", max_instances=1, coalesce=True)
+    # 同花顺盘口异动:事件流滚动 200 条仅覆盖约 5 秒,需 5 秒高频轮询才能采全
+    _sched.add_job(thsflow.collect_job, "interval", seconds=5,
+                   id="ths_events", max_instances=1, coalesce=True)
     _sched.add_job(history_job, "cron", day_of_week="mon-fri",
                    hour=15, minute=6, id="history")
     _sched.add_job(maintenance_job, "cron", hour=3, minute=30,
@@ -101,6 +104,8 @@ def start() -> None:
     _sched.start()
     # 启动立即抓一次（异步，不阻塞服务启动）
     threading.Thread(target=fetch_job, kwargs={"force": True}, daemon=True).start()
+    threading.Thread(target=thsflow.collect_job, kwargs={"force": True},
+                     daemon=True).start()
     log.info("scheduler started, interval=%s min", config.FETCH_INTERVAL_MIN)
 
 

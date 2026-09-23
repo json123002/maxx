@@ -2,9 +2,9 @@
 /* ===== 我的工作台 =====
    左栏 = 工作台股票列表(独立于自选):顶部搜索添加 + 从自选导入,
    重点关注 + 自定义分组 + 按加入日期分组,右键菜单,组内拖拽排序。
-   右栏 = 固定高度工作区,顶部页签:实时监控 / 盘口资金 / 基本分析,
+   右栏 = 固定高度工作区,顶部页签:实时监控 / 盘口资金 / 基本分析 / 公司架构,
    选中的股票驱动个股视图内容(参考 TradingView watchlist 交互)。
-   数据:股票池/星标/分组/F10 走后端;实时行情/盘口异动/资金流走东财 JSONP 直连。 */
+   数据:股票池/星标/分组/F10/同花顺挂单异动 走后端;实时行情/盘口异动/资金流走东财 JSONP 直连。 */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { track } from "../api/client";
@@ -15,6 +15,7 @@ import ConfirmModal from "../components/ConfirmModal.vue";
 import {
   fetchLiveQuotes, fetchChanges, fetchMoneyFlow20,
   fetchStars, addStar, removeStar, fetchF10, buildAlerts,
+  fetchThsEvents,
   fetchGroups, addGroup, renameGroup, removeGroup,
   addGroupItem, removeGroupItem, saveGroupOrder,
   fetchStocks, searchStocks, addStock, removeStock,
@@ -114,7 +115,7 @@ const poolRows = computed(() =>
   rows.value.filter((r) => !groupedCodes.value.has(r.f12)));
 
 /* ---------- 视图状态:顶部页签 + 选中股票 ---------- */
-// monitor=实时监控(不依赖个股) fund=盘口资金 basic=基本分析
+// monitor=实时监控(不依赖个股) fund=盘口资金 basic=基本分析 exec=公司架构
 const tab = ref("monitor");
 const selected = ref("");
 
@@ -621,6 +622,33 @@ const flowChart = computed(() => {
   return { W, H, mid, bars, max };
 });
 
+/* ---------- 同花顺挂单异动(L2:特大挂买/撤单/压托单,后端采集) ---------- */
+const thsCache = reactive({});
+const thsEvents = computed(() => thsCache[selected.value]?.events || []);
+
+// 异动方向:撤单反向(撤卖=偏多/撤买=偏空),其余按买卖/压托判断
+function thsDir(type) {
+  const t = String(type || "");
+  if (t.includes("撤")) return t.includes("卖") ? "bull" : "bear";
+  if (t.includes("卖") || t.includes("压")) return "bear";
+  if (t.includes("买") || t.includes("托")) return "bull";
+  return "";
+}
+
+// force=true 用于交易时段轮询刷新;首次失败可重试,刷新失败保留旧数据
+async function loadThs(code, force = false) {
+  const c = thsCache[code];
+  if (!code || c?.loading || (!force && c?.events)) return;
+  thsCache[code] = { loading: true, events: c?.events || null, error: false };
+  try {
+    const d = await fetchThsEvents(code);
+    const events = (d.events || []).map((x) => ({ ...x, dir: thsDir(x.type) }));
+    thsCache[code] = { loading: false, events, error: false };
+  } catch {
+    thsCache[code] = { loading: false, events: c?.events || null, error: !c?.events };
+  }
+}
+
 /* ---------- 基本分析(F10) ---------- */
 const f10Cache = reactive({});
 const f10 = computed(() => f10Cache[selected.value]?.data || null);
@@ -706,6 +734,7 @@ watch(selected, (code) => {
   if (!code) return;
   loadFlow(code);
   loadF10(code, userPick);
+  loadThs(code);
   userPick = false;
 });
 
@@ -735,7 +764,11 @@ onMounted(async () => {
   const first = starRows.value[0] || rows.value[0];
   if (first) selected.value = first.f12;
   timer = setInterval(() => {
-    if (marketState().cls === "live") { refreshLive(); refreshChanges(); }
+    if (marketState().cls === "live") {
+      refreshLive();
+      refreshChanges();
+      if (tab.value === "fund") loadThs(selected.value, true);
+    }
   }, 30_000);
   document.addEventListener("click", onDocClick);
   document.addEventListener("contextmenu", onDocCtx);
@@ -1090,6 +1123,23 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <div v-else class="dEmpty">今日暂无该股盘口异动</div>
+
+              <div class="dSub">挂单异动<span class="dSubNote">同花顺 L2 · 特大挂买/撤单/压托单</span></div>
+              <div v-if="thsCache[selected]?.loading" class="dLoading"><i class="dSpin"></i>异动加载中…</div>
+              <template v-else>
+                <div v-if="thsEvents.length" class="feedList static">
+                  <div v-for="(c, i) in thsEvents" :key="'th' + i" class="cRow asRow">
+                    <span class="cTime">{{ c.time }}</span>
+                    <span class="cType" :class="c.dir">{{ c.type }}</span>
+                    <span class="cVal">{{ c.value }}</span>
+                  </div>
+                </div>
+                <div v-else-if="thsCache[selected]?.error" class="dEmpty">
+                  挂单异动加载失败
+                  <button class="retryLink" @click="loadThs(selected)">重试</button>
+                </div>
+                <div v-else class="dEmpty">今日暂无该股挂单异动</div>
+              </template>
 
               <template v-if="flowDetail.length">
                 <div class="dSub">分级明细<span class="dSubNote">近 10 日,单位:金额</span></div>
