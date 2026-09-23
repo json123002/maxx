@@ -86,9 +86,9 @@
              :closable="false" :maskClosable="false" :keyboard="false"
              :footer="null" :width="520">
       <div class="riskAckBody">
-        <p>本站为个人学习使用的行情数据整理工具，全部内容来自公开行情数据的<strong>客观统计与展示</strong>，不构成任何投资建议、证券分析意见或买卖依据。</p>
-        <p>页面中的形态、信号、参考位等均为<strong>历史数据的统计描述</strong>，不代表对未来走势的预测，更不保证任何收益。</p>
-        <p>股市有风险，投资须谨慎。任何基于本站信息作出的决策由<strong>使用者本人独立完成，盈亏由使用者本人承担</strong>，与本站及站长无关。</p>
+        <p>本站系个人学习用途的行情数据整理工具，所载内容均来源于公开行情数据，仅为<strong>客观统计与展示</strong>，不构成任何投资建议、证券分析意见或买卖依据。</p>
+        <p>页面中的形态、信号、参考位等均为对<strong>历史数据的统计描述</strong>，不代表对未来走势的预测，亦不保证任何收益。</p>
+        <p><strong>股市有风险，投资须谨慎。</strong>本站内容仅供使用者作为信息查询与参考工具使用，本站不提供、亦不代替使用者作出任何投资决策；使用者基于自身判断独立作出的任何决策，<strong>盈亏由使用者本人承担</strong>，与本站及站长无关。</p>
         <a-checkbox v-model:checked="ackChecked" class="ackCheck">
           我已阅读并理解上述声明，自愿独立决策、自担风险
         </a-checkbox>
