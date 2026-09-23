@@ -301,6 +301,20 @@ def replace_latest(rows, source: str, error: str = None) -> None:
         )
 
 
+def latest_static() -> list:
+    """上一轮快照的 code/name/industry 清单（腾讯兜底源的抓取清单与静态字段）。"""
+    rows = get_conn().execute(
+        "SELECT code, name, industry FROM latest").fetchall()
+    return [dict(r) for r in rows]
+
+
+def snapshot_meta() -> dict:
+    """快照元信息（调度器据此判断上次抓取成败）。"""
+    row = get_conn().execute(
+        "SELECT * FROM snapshot_meta WHERE id = 1").fetchone()
+    return dict(row) if row else {}
+
+
 def save_history(trade_date: str) -> int:
     """把当前 latest 落一份到 history（每日收盘后调用）。"""
     conn = get_conn()

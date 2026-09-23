@@ -7,6 +7,7 @@
 停牌/无数据字段东财返回 "-"，统一归一化为 None。
 """
 import logging
+import math
 import time
 
 import requests
@@ -128,3 +129,105 @@ def fetch_snapshot():
             uniq.append(r)
     rows = uniq
     return rows, ("延迟行情" if "delay" in host else "实时行情")
+
+
+# ===== 腾讯兜底源（东财封禁/故障时启用）=====
+# 2026-09-23 服务器 IP 遭东财 WAF 断连（TLS 通、HTTP 层拒绝），同机房同
+# 请求从腾讯 qt.gtimg.cn 正常。批量报价按代码直查（无需翻页、无排名漂移）,
+# 代码清单沿用上一轮快照（库内 latest）;行业/名称等静态字段同样沿用,
+# 涨跌停判定复用腾讯给出的涨停价/跌停价（下标 47/48)。
+# 局限:f24/f25（阶段涨幅）、f62（主力净流入）腾讯无对应字段,置 None;
+# 快照缺失期间新上市的个股不在清单内,兜底期查不到。
+TX_URL = "https://qt.gtimg.cn/q="
+TX_BATCH = 60            # qt.gtimg.cn 单请求代码数上限（超出会被截断）
+TX_SOURCE = "腾讯行情(备用)"
+
+_tx_session = requests.Session()
+_tx_session.trust_env = False
+_tx_session.headers.update({"User-Agent": HEADERS["User-Agent"]})
+
+
+def _tx_symbol(code: str) -> str:
+    """6 位代码 → 腾讯带市场前缀代码（沪 sh / 深 sz / 北 bj）。"""
+    if code.startswith("6"):
+        return "sh" + code
+    if code.startswith(("4", "8", "9")):
+        return "bj" + code
+    return "sz" + code
+
+
+def _tx_num(parts, i, scale=1.0):
+    """按下标取数值;空串/越界/非法 → None。scale 做单位换算。"""
+    try:
+        v = float(parts[i])
+    except (IndexError, ValueError):
+        return None
+    return v * scale if math.isfinite(v) else None
+
+
+def _tx_row(symbol: str, parts, static: dict) -> dict:
+    """腾讯报价字段数组 → 东财口径行。下标经 2026-09-23 三市场实测核对:
+    3 最新价 / 4 昨收 / 5 今开 / 32 涨跌幅 / 43 振幅 / 38 换手率 /
+    52 市盈率(与东财 f9 一致) / 49 量比 / 37 成交额(万) / 44 流通市值(亿) /
+    45 总市值(亿) / 46 市净率 / 47 涨停价 / 48 跌停价。"""
+    code = symbol[2:]
+    st = static.get(code) or {}
+    price = _tx_num(parts, 3) or None
+    row = {
+        "code": code,
+        "name": st.get("name"),
+        "industry": st.get("industry"),
+        "market": market_of(code),
+        "f2": price,
+        "f18": _tx_num(parts, 4),
+        "f17": _tx_num(parts, 5),
+        "f3": _tx_num(parts, 32),
+        "f7": _tx_num(parts, 43),
+        "f8": _tx_num(parts, 38),
+        "f9": _tx_num(parts, 52) or _tx_num(parts, 39),
+        "f10": _tx_num(parts, 49),
+        "f6": _tx_num(parts, 37, 1e4),
+        "f20": _tx_num(parts, 45, 1e8),
+        "f21": _tx_num(parts, 44, 1e8),
+        "f23": _tx_num(parts, 46),
+        "f350": _tx_num(parts, 47),
+        "f351": _tx_num(parts, 48),
+        "f24": None, "f25": None, "f62": None,
+    }
+    row["limit_up"], row["limit_down"] = limit_flags(
+        row["f2"], row["f350"], row["f351"])
+    return row
+
+
+def _fetch_tx_batch(symbols) -> dict:
+    """一批代码 → {symbol: 字段数组};停牌/退市返回空体,解析后自然剔除。"""
+    r = _tx_session.get(TX_URL + ",".join(symbols), timeout=10)
+    r.raise_for_status()
+    r.encoding = "gbk"
+    out = {}
+    for seg in r.text.split(";"):
+        seg = seg.strip()
+        if not seg.startswith("v_") or "=" not in seg:
+            continue
+        key, _, val = seg.partition("=")
+        body = val.strip().strip('"')
+        if body:
+            out[key[2:]] = body.split("~")
+    return out
+
+
+def fetch_snapshot_tx(static_rows):
+    """腾讯兜底全量快照。static_rows: 上一轮快照的 code/name/industry 清单
+    (db.latest_static())。返回 (rows, source),失败抛异常由调度层记录。"""
+    static = {r["code"]: r for r in static_rows if r.get("code")}
+    symbols = [_tx_symbol(c) for c in static]
+    rows = []
+    for i in range(0, len(symbols), TX_BATCH):
+        batch = symbols[i:i + TX_BATCH]
+        got = _fetch_tx_batch(batch)
+        rows.extend(_tx_row(s, got[s], static) for s in batch if s in got)
+        time.sleep(0.15)
+    if len(rows) < len(symbols) * 0.9:
+        raise RuntimeError("tencent fallback incomplete: %s/%s"
+                           % (len(rows), len(symbols)))
+    return rows, TX_SOURCE
