@@ -100,6 +100,15 @@ def init_db() -> None:
             PRIMARY KEY (user_id, code)
         );
 
+        -- 黑名单：按用户隔离；命中后筛选结果(/api/quote/list)服务端直接剔除
+        CREATE TABLE IF NOT EXISTS blacklist (
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            code       TEXT NOT NULL,
+            name       TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, code)
+        );
+
         -- 行情源设置：每用户独立的第三方行情接口配置（证书编号只回给本人；
         -- is_public 公开后全站用户在未启用自己的源时可用，但只见名称）
         CREATE TABLE IF NOT EXISTS quote_source (

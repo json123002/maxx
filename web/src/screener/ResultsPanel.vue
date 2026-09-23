@@ -1,12 +1,14 @@
 <script setup>
 /* ===== 结果区:页签 / 排序 / 桌面表格 / 手机卡片 / 无限滚动 / CSV 导出
    (移植自旧 screener-app.js 渲染部分,表格和卡片两套都渲染,显隐由全局 css 媒体查询控制)===== */
-import { computed, inject, onMounted, onUnmounted, ref } from "vue";
+import { computed, inject, onMounted, onUnmounted, reactive, ref } from "vue";
 import { message } from "ant-design-vue";
 import { cls, fmtN, fmtYiC, fmtYiT, quoteUrl } from "../utils/format";
 import { fmtMetric, metricCardExtras } from "./metrics";
 import { IS_MOBILE } from "./useScreener";
 import { inWatch, loadWatchCodes, toggleWatch } from "../stores/watchlist";
+import { addBlack, loadBlackCodes } from "../stores/blacklist";
+import ConfirmModal from "../components/ConfirmModal.vue";
 
 const emit = defineEmits(["analysis"]);
 
@@ -15,6 +17,7 @@ const {
   tab, allRows, lastTotal, hasRun, metrics, senti, srcBadge,
   sortKey, sortDir, indSortKey, indSortDir,
   sortChips, extraCols, tableRows, cardRows, indRows, hasMore, capNote,
+  hiddenCount, hideRow, restoreHidden,
 } = s;
 const { setSort, setIndSort, loadMore, exportCSV, selectIndustry } = s;
 
@@ -68,6 +71,51 @@ function onTag(ind) {
 
 // 自选星标:登录后拉一次代码集合;点击切换,失败提示
 loadWatchCodes();
+loadBlackCodes();
+
+/* ---------- 行操作菜单(⋯):本次查询不再显示 / 加入黑名单 ---------- */
+const rowMenu = ref(null); // {x, y, r}
+function openRowMenu(e, r) {
+  e.preventDefault();
+  e.stopPropagation();
+  // 防右侧溢出:菜单宽约 150px
+  rowMenu.value = { x: Math.min(e.clientX, window.innerWidth - 160),
+                    y: e.clientY, r };
+}
+function closeRowMenu() { rowMenu.value = null; }
+onMounted(() => document.addEventListener("click", closeRowMenu));
+onUnmounted(() => document.removeEventListener("click", closeRowMenu));
+
+function onHideRow() {
+  const r = rowMenu.value?.r;
+  closeRowMenu();
+  if (!r) return;
+  hideRow(r.f12);
+  message.info(`已从本次查询隐藏 ${r.f14}，重新查询后恢复`);
+}
+
+/* ---------- 加入黑名单(二次确认;长期屏蔽,设置页可管理) ---------- */
+const blk = reactive({ open: false, r: null, loading: false });
+function askBlack() {
+  blk.r = rowMenu.value?.r || null;
+  closeRowMenu();
+  blk.open = !!blk.r;
+}
+async function doBlack() {
+  const r = blk.r;
+  if (!r) return;
+  blk.loading = true;
+  try {
+    await addBlack(r.f12);
+    hideRow(r.f12); // 当前查询立即不显示;后续查询由服务端剔除
+    blk.open = false;
+    message.success(`已加入黑名单 ${r.f14}，可在「设置 · 黑名单管理」中移除`);
+  } catch (err) {
+    if (err.message !== "unauthorized") message.error(err.message || "操作失败");
+  } finally {
+    blk.loading = false;
+  }
+}
 async function onStar(r) {
   const added = !inWatch(r.f12);
   try {
@@ -110,6 +158,10 @@ onUnmounted(() => observer && observer.disconnect());
         <span>共 <span id="count">{{ lastTotal }}</span> 只符合条件</span>
         <span id="sentiBadge" class="sentiBadge" :class="'lv' + senti.lv" v-show="senti.show" :title="senti.title">{{ senti.text }}</span>
         <span id="capNote" v-show="capNote.show">{{ capNote.text }}</span>
+        <span v-if="hiddenCount" class="hideChip" title="仅从本次查询结果中隐藏，重新查询后恢复；长期屏蔽请用行菜单「加入黑名单」">
+          已隐藏 {{ hiddenCount }} 只
+          <button class="hideUndo" @click="restoreHidden">恢复</button>
+        </span>
         <span class="metaSpacer"></span>
         <span class="hint">点击列头排序 · 点击行业标签快速筛选</span>
         <span id="srcBadgeM" class="srcBadge" :class="{ rt: srcBadge.rt }">{{ srcBadge.text }}</span>
@@ -153,7 +205,10 @@ onUnmounted(() => observer && observer.disconnect());
             <td>{{ fmtYiT(r.f20) }}</td>
             <td>{{ fmtN(r.f9, 1) }}</td>
             <td v-for="d in extraCols" :key="d.k">{{ fmtMetric(d, r[d.k]) }}</td>
-            <td><button class="anaBtn" @click="emit('analysis', r.f12)">分析</button></td>
+            <td class="actCell">
+              <button class="anaBtn" @click="emit('analysis', r.f12)">分析</button>
+              <button class="moreBtn" title="更多操作" @click="openRowMenu($event, r)">⋯</button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -190,6 +245,7 @@ onUnmounted(() => observer && observer.disconnect());
           <span class="tag" @click.prevent="onTag(r.f100)">{{ r.f100 || "—" }}</span>
           <span class="sub">额 {{ fmtYiC(r.f6) }} · 市值 {{ fmtYiC(r.f20) }} · PE {{ fmtN(r.f9, 1) }}{{ cardExtras(r) }}</span>
           <button class="anaBtn" @click.prevent.stop="emit('analysis', r.f12)">分析</button>
+          <button class="moreBtn" title="更多操作" @click.prevent.stop="openRowMenu($event, r)">⋯</button>
           <button class="starBtn" :class="{ on: inWatch(r.f12) }"
                   :title="inWatch(r.f12) ? '移除自选' : '添加自选'" @click.prevent.stop="onStar(r)">
             <svg width="14" height="14" viewBox="0 0 24 24" :fill="inWatch(r.f12) ? 'currentColor' : 'none'"
@@ -214,5 +270,66 @@ onUnmounted(() => observer && observer.disconnect());
 
     <button id="moreBtn" ref="moreBtn" @click="loadMore">加载更多</button>
     <div class="empty" id="emptyHint" v-html="emptyHtml"></div>
+
+    <!-- ===== 行操作菜单(⋯ 弹出) ===== -->
+    <Teleport to="body">
+      <div v-if="rowMenu" class="rowMenu" @click.stop
+           :style="{ left: rowMenu.x + 'px', top: rowMenu.y + 'px' }">
+        <button class="rowMenuItem" @click="onHideRow">本次查询不再显示</button>
+        <button class="rowMenuItem danger" @click="askBlack">加入黑名单…</button>
+      </div>
+    </Teleport>
+
+    <!-- 加入黑名单二次确认 -->
+    <ConfirmModal
+      :open="blk.open"
+      :title="'加入黑名单 ' + (blk.r ? blk.r.f14 + ' ' + blk.r.f12 : '')"
+      desc="加入后该股将不再出现在筛选结果中；可随时在「设置 · 黑名单管理」中移除。"
+      ok-text="加入黑名单"
+      :loading="blk.loading"
+      @confirm="doBlack"
+      @close="blk.open = false"
+    />
   </div>
 </template>
+
+<style scoped>
+/* ===== 行操作:⋯ 菜单按钮(默认淡,悬停行时显现) ===== */
+.actCell { white-space: nowrap; }
+.moreBtn {
+  margin-left: 6px; width: 24px; height: 24px; border: none; border-radius: 6px;
+  background: none; color: var(--dim); font-size: 14px; line-height: 1;
+  cursor: pointer; opacity: .45; transition: opacity .15s, background .15s, color .15s;
+}
+tr:hover .moreBtn, .card .moreBtn { opacity: 1; }
+.moreBtn:hover { background: var(--hover); color: var(--txt); }
+
+/* ===== 已隐藏标记(工具栏) ===== */
+.hideChip {
+  font-size: 12px; color: var(--dim);
+  border: 1px dashed var(--line-strong); border-radius: 999px; padding: 2px 10px;
+}
+.hideUndo {
+  background: none; border: none; padding: 0 0 0 6px; cursor: pointer;
+  color: var(--accent); font-size: 12px; font-family: inherit;
+}
+.hideUndo:hover { text-decoration: underline; }
+</style>
+
+<style>
+/* ===== 行操作菜单(Teleport 到 body,需全局样式) ===== */
+.rowMenu {
+  position: fixed; z-index: 1000; min-width: 150px;
+  transform: translate(0, 6px);
+  background: var(--panel); border: 1px solid var(--line-strong);
+  border-radius: 10px; padding: 5px; box-shadow: 0 10px 32px rgba(0, 0, 0, .38);
+}
+.rowMenuItem {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; border-radius: 7px;
+  padding: 8px 12px; font-size: 12.5px; font-family: inherit;
+  color: var(--txt); cursor: pointer; transition: background .12s;
+}
+.rowMenuItem:hover { background: var(--hover); }
+.rowMenuItem.danger { color: var(--up); }
+</style>

@@ -151,6 +151,12 @@ def quote_list(
     }
     where, params = build_filter_sql(args)
     conn = get_conn()
+    # 黑名单:服务端直接剔除(不计入 total、不出现在行内)
+    bl = [r["code"] for r in conn.execute(
+        "SELECT code FROM blacklist WHERE user_id = ?", (user["id"],)).fetchall()]
+    if bl:
+        where += " AND code NOT IN (" + ",".join("?" * len(bl)) + ")"
+        params += bl
     total = conn.execute(
         "SELECT COUNT(*) AS c FROM latest" + where, params).fetchone()["c"]
     rows = conn.execute(

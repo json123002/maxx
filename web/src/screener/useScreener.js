@@ -46,6 +46,16 @@ export function useScreener() {
   const shown = ref(LOAD_STEP);
   const tab = ref("stock"); // stock | ind
 
+  // ===== 本次查询隐藏(仅当前结果;重新查询即恢复。长期屏蔽用「加入黑名单」)=====
+  const hidden = ref(new Set());
+  const hiddenCount = computed(() => hidden.value.size);
+  function hideRow(code) {
+    const s = new Set(hidden.value);
+    s.add(code);
+    hidden.value = s;
+  }
+  function restoreHidden() { hidden.value = new Set(); }
+
   // ===== 查询中状态 =====
   const querying = ref(false);
   const progressVisible = ref(false);
@@ -303,6 +313,7 @@ export function useScreener() {
       lastMeta.value = meta;
       hasRun.value = true;
       shown.value = LOAD_STEP;
+      hidden.value = new Set(); // 新一次查询:上次"本次隐藏"的记录失效
       // 埋点:中文条件摘要 + 命中数(操作日志页可查,仅 root 可见)
       const parts = [summary.value];
       if (kw.value.trim()) parts.push("关键词:" + kw.value.trim());
@@ -401,8 +412,9 @@ export function useScreener() {
     if (IS_MOBILE()) window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  // ===== 渲染数据(服务端已完成过滤,本地仅排序)=====
-  const sortedRows = computed(() => allRows.value.slice().sort(cmpRows(sortKey.value, sortDir.value)));
+  // ===== 渲染数据(服务端已完成过滤,本地仅排序;"本次隐藏"的行本地剔除)=====
+  const visibleRows = computed(() => allRows.value.filter((r) => !hidden.value.has(r.f12)));
+  const sortedRows = computed(() => visibleRows.value.slice().sort(cmpRows(sortKey.value, sortDir.value)));
   const tableRows = computed(() => sortedRows.value.slice(0, RENDER_CAP)); // 桌面表格渲染上限
   const cardRows = computed(() => sortedRows.value.slice(0, shown.value)); // 手机卡片分页
   const hasMore = computed(() => sortedRows.value.length > shown.value);
@@ -417,7 +429,7 @@ export function useScreener() {
     });
     return Object.values(g).map((x) => ({ name: x.name, n: x.n, avgT: x.t / x.n, avgC: x.c / x.n, upN: x.up, amount: x.amt }));
   }
-  const indRows = computed(() => indAgg(allRows.value).sort(cmpRows(indSortKey.value, indSortDir.value)));
+  const indRows = computed(() => indAgg(visibleRows.value).sort(cmpRows(indSortKey.value, indSortDir.value)));
 
   // 桌面表格需要追加的指标列(跳过基础列)
   const extraCols = computed(() => metricExtraCols(metrics.value));
@@ -430,12 +442,11 @@ export function useScreener() {
       .concat(extra.map((d) => ({ k: d.k, name: d.name })));
   });
 
-  // 渲染上限提示文案
+  // 渲染上限提示文案(返回上限按服务端行数判断,不受"本次隐藏"影响)
   const capNote = computed(() => {
-    const rows = allRows.value;
-    if (lastTotal.value > rows.length)
-      return { show: true, text: "结果超过返回上限，仅显示前 " + rows.length + " 条，请收窄条件" };
-    return { show: rows.length > RENDER_CAP, text: "表格仅渲染前 500 行，导出 CSV 含全部结果" };
+    if (lastTotal.value > allRows.value.length)
+      return { show: true, text: "结果超过返回上限，仅显示前 " + allRows.value.length + " 条，请收窄条件" };
+    return { show: visibleRows.value.length > RENDER_CAP, text: "表格仅渲染前 500 行，导出 CSV 含全部结果" };
   });
 
   function loadMore() { shown.value += LOAD_STEP; }
@@ -470,6 +481,8 @@ export function useScreener() {
     tMin, tMax, cMin, cMax, kw, industry, mkts, noST, noSuspend, metrics,
     // 结果/排序/分页/页签
     allRows, lastTotal, lastMeta, hasRun, sortKey, sortDir, indSortKey, indSortDir, shown, tab,
+    // 本次查询隐藏
+    hidden, hiddenCount, hideRow, restoreHidden,
     // 查询中状态
     querying, progressVisible, statusTxt,
     // 行业/徽标/面板

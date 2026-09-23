@@ -1073,3 +1073,35 @@ def test_quote_intraday(client, monkeypatch):
                                        headers=h).json()["users"]
            if u["username"] == "min_user"][0]
     client.delete(f"/api/admin/users/{uid}", headers=h)
+
+
+# ===== 黑名单 =====
+def test_blacklist_requires_auth(client):
+    assert client.get("/api/blacklist").status_code == 401
+    assert client.post("/api/blacklist", json={"code": "600001"}).status_code == 401
+
+
+def test_blacklist_lifecycle_and_quote_exclusion(client):
+    h = login(client, "admin", "admin123")
+    assert client.get("/api/blacklist", headers=h).json()["rows"] == []
+    # 加入(快照中存在的代码),重复加入幂等
+    r = client.post("/api/blacklist", headers=h, json={"code": "600001"})
+    assert r.status_code == 200 and r.json()["name"] == "测试钢铁"
+    assert client.post("/api/blacklist", headers=h,
+                       json={"code": "600001"}).status_code == 200
+    # 非法代码 / 快照中不存在
+    assert client.post("/api/blacklist", headers=h,
+                       json={"code": "123"}).status_code == 422
+    assert client.post("/api/blacklist", headers=h,
+                       json={"code": "999999"}).status_code == 404
+    rows = client.get("/api/blacklist", headers=h).json()["rows"]
+    assert [r["code"] for r in rows] == ["600001"]
+    # 筛选结果服务端剔除:600001 不再出现且不计入 total(no_st=false 时原本 4 只)
+    r = client.get("/api/quote/list?no_st=false", headers=h).json()
+    assert r["total"] == 3
+    assert all(x["f12"] != "600001" for x in r["rows"])
+    # 移出后恢复
+    assert client.delete("/api/blacklist/600001", headers=h).status_code == 200
+    assert client.delete("/api/blacklist/600001", headers=h).status_code == 200  # 幂等
+    r = client.get("/api/quote/list?no_st=false", headers=h).json()
+    assert r["total"] == 4

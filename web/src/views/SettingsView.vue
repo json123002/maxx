@@ -1,12 +1,15 @@
 <script setup>
-/* ===== 设置 · 行情设置：每用户独立的第三方行情接口 =====
+/* ===== 设置 · 行情设置 + 黑名单管理 =====
+   行情设置：每用户独立的第三方行情接口
    添加自己的行情源（服务商 + 证书编号），启用后首页「我的自选」实时行情
    改走自己的接口；未配置或调用失败时自动回落系统默认数据源（东方财富快照）。
    证书编号保存在后端数据库（quote_source 表，按用户隔离），后端代理请求，
-   浏览器不直连第三方——接口地址与证书都不会暴露给其他人。 */
+   浏览器不直连第三方——接口地址与证书都不会暴露给其他人。
+   黑名单管理：每用户独立（blacklist 表），命中后换手率筛选结果服务端直接剔除。 */
 import { onMounted, reactive, ref } from "vue";
 import { message } from "ant-design-vue";
 import { api } from "../api/client";
+import { blackState, removeBlack } from "../stores/blacklist";
 import ConfirmModal from "../components/ConfirmModal.vue";
 
 const PROVIDER_LABEL = { mairui: "麦蕊智数" };
@@ -126,7 +129,60 @@ async function remove() {
   }
 }
 
-onMounted(load);
+/* ---------- 黑名单管理(命中后筛选结果不再显示;在筛选行 ⋯ 菜单也可加入) ---------- */
+const blRows = ref([]);
+const blLoading = ref(false);
+const blCode = ref("");
+const blSaving = ref(false);
+
+async function loadBlack() {
+  blLoading.value = true;
+  try {
+    const d = await api("/api/blacklist");
+    blRows.value = d.rows || [];
+    blackState.codes = new Set(blRows.value.map((r) => r.code));
+    blackState.loaded = true;
+  } catch (err) {
+    if (err.message !== "unauthorized") message.error(err.message || "加载失败");
+  } finally {
+    blLoading.value = false;
+  }
+}
+
+async function addBl() {
+  const code = blCode.value.trim();
+  if (!/^\d{6}$/.test(code)) return message.warning("请输入 6 位股票代码");
+  blSaving.value = true;
+  try {
+    await api("/api/blacklist", { method: "POST", body: { code } });
+    message.success("已加入黑名单，筛选结果将不再显示该股");
+    blCode.value = "";
+    loadBlack();
+  } catch (err) {
+    if (err.message !== "unauthorized") message.error(err.message || "添加失败");
+  } finally {
+    blSaving.value = false;
+  }
+}
+
+const blRm = reactive({ open: false, row: null, loading: false });
+async function removeBl() {
+  const r = blRm.row;
+  if (!r) return;
+  blRm.loading = true;
+  try {
+    await removeBlack(r.code);
+    blRm.open = false;
+    message.success(`已移出黑名单 ${r.name || r.code}，下次查询恢复显示`);
+    loadBlack();
+  } catch (err) {
+    if (err.message !== "unauthorized") message.error(err.message || "移除失败");
+  } finally {
+    blRm.loading = false;
+  }
+}
+
+onMounted(() => { load(); loadBlack(); });
 </script>
 
 <template>
@@ -212,6 +268,50 @@ onMounted(load);
       </div>
     </section>
 
+    <!-- ===== 黑名单管理 ===== -->
+    <section class="blk">
+      <div class="secHead">
+        <span class="secName">黑名单管理</span>
+        <span class="secNote">共 {{ blRows.length }} 只 · 命中后筛选结果不再显示</span>
+        <button class="ghostBtn" :disabled="blLoading" @click="loadBlack">
+          {{ blLoading ? "刷新中…" : "刷新" }}
+        </button>
+      </div>
+
+      <p class="hint">
+        黑名单只影响你自己的账号：加入后该股不再出现在换手率筛选结果中（服务端直接剔除），
+        移除后下次查询恢复显示。也可以在筛选结果行的「⋯」菜单里直接加入黑名单；
+        行菜单里的「本次查询不再显示」只是临时隐藏，重新查询即恢复。
+      </p>
+
+      <!-- 按代码添加 -->
+      <div class="addForm">
+        <input v-model="blCode" class="fInput fName" maxlength="6" inputmode="numeric"
+               placeholder="6 位股票代码，如：600519" @keyup.enter="addBl" />
+        <button class="addBtn" :disabled="blSaving" @click="addBl">
+          {{ blSaving ? "加入中…" : "+ 加入黑名单" }}
+        </button>
+      </div>
+
+      <div v-if="blRows.length" class="list">
+        <div v-for="r in blRows" :key="r.code" class="row">
+          <span class="nm"><b>{{ r.name || "—" }}</b></span>
+          <span class="blCode">{{ r.code }}</span>
+          <span class="blTime">加入于 {{ (r.created_at || "").slice(0, 10) }}</span>
+          <button class="rmBtn" title="移出黑名单" @click="blRm.row = r; blRm.open = true">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div v-else-if="!blLoading" class="empty">
+        黑名单为空<br />
+        在筛选结果行的「⋯」菜单选择「加入黑名单」，或上方输入代码添加
+      </div>
+    </section>
+
     <!-- 删除二次确认 -->
     <ConfirmModal
       :open="rmState.open"
@@ -223,6 +323,17 @@ onMounted(load);
       :loading="rmState.loading"
       @confirm="remove"
       @close="rmState.open = false"
+    />
+
+    <!-- 移出黑名单二次确认 -->
+    <ConfirmModal
+      :open="blRm.open"
+      :title="'移出黑名单 ' + (blRm.row ? (blRm.row.name || '') + ' ' + blRm.row.code : '')"
+      desc="移出后该股将重新出现在筛选结果中（下次查询生效）。"
+      ok-text="移出"
+      :loading="blRm.loading"
+      @confirm="removeBl"
+      @close="blRm.open = false"
     />
   </div>
 </template>
@@ -345,6 +456,11 @@ onMounted(load);
   padding: 48px 0; text-align: center; color: var(--dim);
   font-size: 13px; line-height: 2;
 }
+
+/* ===== 黑名单行 ===== */
+.blCode { color: var(--dim); font-family: var(--mono); font-size: 12px; min-width: 70px; }
+.blTime { color: var(--dim); font-size: 12px; }
+.blk + .blk { margin-top: 36px; }
 
 @media (max-width: 720px) {
   .addForm { flex-wrap: wrap; }
