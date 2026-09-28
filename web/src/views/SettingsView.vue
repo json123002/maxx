@@ -341,41 +341,25 @@ onMounted(() => {
         </div>
 
         <div class="groupCard">
-          <!-- 行情源 -->
+          <!-- 实时行情接口与数据通道 -->
           <div class="cardRow clickable" @click="openModal('qsource')">
             <div class="rowIcon"><ApiOutlined /></div>
             <div class="rowBody">
               <div class="rowTitle">
-                <span>第三方高速行情源 (API Channels)</span>
-                <span v-if="activeSource" class="statusTag green">● 正在生效</span>
+                <span>实时行情接口与数据通道 (Data Feeds)</span>
+                <span v-if="activeSource" class="statusTag green">● {{ activeSource.name }} 生效中</span>
+                <span v-else-if="publicList.length" class="statusTag green">● 公共源加速中</span>
                 <span v-else class="statusTag gray">系统快照兜底</span>
               </div>
               <div class="rowDesc">
-                直连麦蕊智数第三方高频行情接口，未配置或异常时三级兜底回落至全市场东财快照。
-              </div>
-            </div>
-            <div class="rowRight">
-              <span class="rowStatusText">{{ activeSourceName }}</span>
-              <button class="actionBtn" @click.stop="openModal('qsource')">配置数据源 ↗</button>
-            </div>
-          </div>
-
-          <!-- 公共共享源 -->
-          <div class="cardRow clickable" @click="openModal('qsource')">
-            <div class="rowIcon"><GlobalOutlined /></div>
-            <div class="rowBody">
-              <div class="rowTitle">
-                <span>公共共享行情池</span>
-              </div>
-              <div class="rowDesc">
-                全站管理员与用户主动共享的行情通道，未配置私有凭证的用户可自动接入加速。
+                配置第三方高速行情接口（如麦蕊智数），支持私有凭证与全站共享，未配置时自动三级兜底回落至东财快照。
               </div>
             </div>
             <div class="rowRight">
               <span class="rowStatusText">
-                {{ publicList.length ? `${publicList.length} 个公共源在线` : "无公共源" }}
+                {{ activeSourceName }}
               </span>
-              <button class="actionBtn" @click.stop="openModal('qsource')">查看共享 ↗</button>
+              <button class="actionBtn" @click.stop="openModal('qsource')">配置数据源 ↗</button>
             </div>
           </div>
         </div>
