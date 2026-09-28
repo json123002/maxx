@@ -906,6 +906,32 @@ function onCanvasKeydown(e) {
     e.preventDefault();
     if (noteTimer) clearTimeout(noteTimer);
     flushSaveNote(false);
+    return;
+  }
+  // 待办清单内回车换行优化：如果待办行已空，回车转为普通正文段落
+  if (e.key === "Enter" && !e.shiftKey) {
+    const sel = window.getSelection();
+    if (sel && sel.anchorNode) {
+      const todoEl = sel.anchorNode.nodeType === 1
+        ? sel.anchorNode.closest(".visTodo")
+        : sel.anchorNode.parentElement?.closest(".visTodo");
+      if (todoEl) {
+        const text = todoEl.innerText.trim();
+        if (!text) {
+          e.preventDefault();
+          const p = document.createElement("p");
+          p.innerHTML = "<br>";
+          todoEl.parentNode.replaceChild(p, todoEl);
+          const range = document.createRange();
+          range.setStart(p, 0);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          onCanvasInput();
+          return;
+        }
+      }
+    }
   }
 }
 
@@ -947,7 +973,7 @@ function insertHtmlAtCursor(html) {
 }
 
 function insertTodo() {
-  insertHtmlAtCursor('<div class="visTodo"><input type="checkbox" /> <span>待办任务项…</span></div><p><br></p>');
+  insertHtmlAtCursor('<div class="visTodo"><input type="checkbox" contenteditable="false" /> <span>待办要点…</span></div><p><br></p>');
 }
 
 function insertCallout() {
@@ -991,10 +1017,12 @@ const VISUAL_TEMPLATES = [
     label: "操盘计划",
     html: `
 <h2 class="visH2">操盘计划</h2>
-<div class="visTodo"><input type="checkbox" /> <span><b>介入条件：</b>关键阻力突破 / 回踩均线确认点位</span></div>
-<div class="visTodo"><input type="checkbox" /> <span><b>目标区间：</b>第一目标位 ___ 元，盈亏比预期 ≥ 3:1</span></div>
-<div class="visTodo"><input type="checkbox" /> <span><b>止损防守：</b>跌破关键支撑 ___ 元果断执行</span></div>
-<div class="visTodo"><input type="checkbox" /> <span><b>仓位控制：</b>单票风险敞口控制在 ___%</span></div>
+<ul>
+  <li><b>介入条件：</b>突破阻力位 / 回踩均线企稳确认</li>
+  <li><b>目标价格：</b>第一目标 0.00 元（盈亏比 ≥ 3:1）</li>
+  <li><b>止损防守：</b>跌破支撑 0.00 元果断执行</li>
+  <li><b>仓位控制：</b>单票风险敞口控制在 10%</li>
+</ul>
 <p><br></p>
 `,
   },
@@ -1003,9 +1031,9 @@ const VISUAL_TEMPLATES = [
     html: `
 <h2 class="visH2">核心驱动逻辑</h2>
 <ul>
-  <li><b>板块催化：</b>所属主线热点驱动与政策/行业催化预期</li>
-  <li><b>量价配合：</b>均线形态、突破结构与成交量承接状态</li>
-  <li><b>资金沉淀：</b>主力资金连续流向与盘口大单活跃度</li>
+  <li><b>板块催化：</b>主线热点驱动与政策/行业催化预期</li>
+  <li><b>量价配合：</b>均线形态、突破结构与成交量承接</li>
+  <li><b>资金沉淀：</b>主力资金连续净流入与大单活跃度</li>
   <li><b>风险排查：</b>近期解禁、财务减持或潜在利空排查</li>
 </ul>
 <p><br></p>
@@ -1017,7 +1045,7 @@ const VISUAL_TEMPLATES = [
 <h2 class="visH2">盘后复盘</h2>
 <blockquote class="visCallout"><b>走势综述：</b>全天强弱表现、主力资金参与度与盘口承接特征。</blockquote>
 <ul>
-  <li><b>量能与分时：</b>早盘放量承接与午后量价配合情况</li>
+  <li><b>量能与分时：</b>早盘放量承接与尾盘量价表现</li>
   <li><b>纪律执行：</b>是否按既定计划操作，有无追高或侥幸心理</li>
   <li><b>次日预案：</b>高开/低开关键点位应对策略</li>
 </ul>
@@ -1029,8 +1057,10 @@ const VISUAL_TEMPLATES = [
     html: `
 <h2 class="visH2">止损与风险预案</h2>
 <blockquote class="visCallout warn"><b>防守纪律：</b>触及防守价位果断离场，严控最大回撤。</blockquote>
-<div class="visTodo"><input type="checkbox" /> <span><b>防守价位：</b>跌破 ___ 元（最大容忍回撤 ___%）</span></div>
-<div class="visTodo"><input type="checkbox" /> <span><b>执行动作：</b>破位不侥幸扛单，盘中或尾盘坚决离场</span></div>
+<ul>
+  <li><b>防守价位：</b>跌破 0.00 元（最大容忍回撤 5%）</li>
+  <li><b>执行动作：</b>破位不侥幸扛单，坚决执行纪律离场</li>
+</ul>
 <p><br></p>
 `,
   },
@@ -2658,10 +2688,10 @@ onBeforeUnmount(() => {
   background: transparent;
   outline: none;
   color: var(--txt);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 13px;
-  line-height: 1.65;
-  padding: 14px 18px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 12px 16px;
   box-sizing: border-box;
 }
 .visCanvas:empty::before {
@@ -2670,44 +2700,49 @@ onBeforeUnmount(() => {
   opacity: 0.6;
   pointer-events: none;
   display: block;
-  line-height: 1.65;
-  font-size: 12.5px;
+  line-height: 1.6;
+  font-size: 11.5px;
   white-space: pre-wrap;
 }
 .visCanvas h2, .visCanvas .visH2 {
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 650;
   color: var(--txt);
-  margin: 12px 0 6px;
-  padding-bottom: 3px;
-  border-bottom: 1px solid var(--line);
+  margin: 10px 0 5px;
+  padding: 0 0 0 7px;
+  border-left: 2.5px solid var(--accent);
+  border-bottom: none;
+  line-height: 1.4;
 }
 .visCanvas h3, .visCanvas .visH3 {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--txt);
-  margin: 8px 0 4px;
+  margin: 8px 0 3px;
+  padding: 0 0 0 6px;
+  border-left: 2px solid var(--line-strong);
+  line-height: 1.4;
 }
 .visCanvas p {
-  margin: 4px 0;
+  margin: 3px 0;
 }
 .visCanvas ul, .visCanvas ol {
   margin: 4px 0;
-  padding-left: 20px;
+  padding-left: 18px;
 }
 .visCanvas li {
   margin: 2px 0;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 .visCanvas blockquote, .visCanvas .visCallout {
-  margin: 8px 0;
-  padding: 6px 12px;
-  border-left: 3px solid var(--accent);
+  margin: 6px 0;
+  padding: 5px 10px;
+  border-left: 2.5px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 6%, var(--panel));
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 5px 5px 0;
   color: var(--txt);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 11.5px;
+  line-height: 1.55;
 }
 .visCanvas .visCallout.warn {
   border-left-color: var(--hot);
@@ -2716,16 +2751,17 @@ onBeforeUnmount(() => {
 .visCanvas .visTodo {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin: 4px 0;
-  font-size: 12.5px;
+  gap: 6px;
+  margin: 3px 0;
+  font-size: 12px;
 }
 .visCanvas .visTodo input[type="checkbox"] {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   cursor: pointer;
   accent-color: var(--accent);
   flex-shrink: 0;
+  user-select: none;
 }
 .visCanvas .visTodo.isDone span {
   text-decoration: line-through;
