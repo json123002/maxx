@@ -1,14 +1,35 @@
 <template>
   <div class="home">
-    <!-- ===== 刊头：日期 + 问候 + 数据快照时间 ===== -->
+    <!-- ===== 刊头：日期 + 问候 + 股市箴言与投资哲学 + 数据快照时间 ===== -->
     <header class="mast">
-      <div>
+      <div class="mastLeft">
         <div class="mastDate">{{ dateStr }}</div>
         <h1 class="mastHi">{{ greeting }}，{{ authState.user?.username }}</h1>
       </div>
-      <div v-if="fetchedAt" class="mastMeta" :class="{ stale }">
-        <i class="liveDot"></i>
-        {{ stale ? "快照待更新" : "数据更新于" }} {{ fetchedAt }} · 东方财富{{ source ? " · " + source : "" }}
+      <div class="mastRight">
+        <!-- 箴言 / 市场哲学 / 祝福语 -->
+        <div
+          class="mastQuote"
+          :class="{ fading: quoteFading }"
+          @click="nextQuote"
+          title="点击换一条箴言"
+        >
+          <svg class="quoteIcon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M4.583 17.321C3.553 16.227 3 15 3 13.011c0-3.5 2.457-6.637 6.03-8.188l.893 1.378c-3.335 1.804-3.987 4.145-4.247 5.621.537-.278 1.24-.375 1.929-.311 1.804.167 3.226 1.648 3.226 3.489a3.5 3.5 0 01-3.5 3.5c-1.073 0-2.099-.49-2.748-1.179zm10 0C13.553 16.227 13 15 13 13.011c0-3.5 2.457-6.637 6.03-8.188l.893 1.378c-3.335 1.804-3.987 4.145-4.247 5.621.537-.278 1.24-.375 1.929-.311 1.804.167 3.226 1.648 3.226 3.489a3.5 3.5 0 01-3.5 3.5c-1.073 0-2.099-.49-2.748-1.179z"/>
+          </svg>
+          <span class="quoteText">{{ currentQuote.text }}</span>
+          <span class="quoteAuthor">—— {{ currentQuote.author }}</span>
+          <span class="quoteRefresh" aria-label="换一条">
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/>
+            </svg>
+          </span>
+        </div>
+
+        <div v-if="fetchedAt" class="mastMeta" :class="{ stale }">
+          <i class="liveDot"></i>
+          {{ stale ? "快照待更新" : "数据更新于" }} {{ fetchedAt }} · 东方财富{{ source ? " · " + source : "" }}
+        </div>
       </div>
     </header>
 
@@ -173,6 +194,51 @@ const greeting = computed(() => {
   return "晚上好";
 });
 
+// ===== 刊头股市箴言与投资哲学 =====
+const MARKET_QUOTES = [
+  { text: "在别人贪婪时恐惧，在别人恐惧时贪婪。", author: "沃伦·巴菲特" },
+  { text: "股市是把财富从浮躁者手中转移到从容者手中的工具。", author: "沃伦·巴菲特" },
+  { text: "如果不想拥有一只股票十年，就不要考虑拥有它十分钟。", author: "沃伦·巴菲特" },
+  { text: "时间是优秀企业的朋友，是平庸企业的敌人。", author: "沃伦·巴菲特" },
+  { text: "反过来想，总是反过来想。", author: "查理·芒格" },
+  { text: "赚大钱不在于买进卖出，而在于等待。", author: "查理·芒格" },
+  { text: "宏观是我们必须忍受的，微观才是我们可以有所作为的。", author: "查理·芒格" },
+  { text: "耐心是一种美德，尤其是在一个充斥着短期投机的市场中。", author: "查理·芒格" },
+  { text: "股市中从来没有什么新鲜事，投机像山岳一样古老。", author: "杰西·利弗莫尔" },
+  { text: "钱是坐着等出来的，不是靠频繁交易折腾出来的。", author: "杰西·利弗莫尔" },
+  { text: "截断亏损，让利润奔跑。", author: "杰西·利弗莫尔" },
+  { text: "市场短期是一台投票机，长期是一台称重机。", author: "本杰明·格雷厄姆" },
+  { text: "安全边际，是投资成功的基石。", author: "本杰明·格雷厄姆" },
+  { text: "周期永远不会结束，保持敬畏是对市场最好的尊重。", author: "霍华德·马克斯" },
+  { text: "投资最重要的事，是认清风险并控制风险。", author: "霍华德·马克斯" },
+  { text: "行情总在绝望中诞生，在犹豫中前行，在疯狂中幻灭。", author: "约翰·邓普顿" },
+  { text: "决定投资命运的不是头脑，而是耐得住寂寞的定力。", author: "彼得·林奇" },
+  { text: "行情就像小狗，有时跑在前面，有时落在后面，但终究会回到主人身边。", author: "安德烈·科斯托兰尼" },
+  { text: "流水不争先，争的是滔滔不绝。", author: "投资心法" },
+  { text: "心静如水，顺势而为；守正出奇，笃定致远。", author: "交易心法" },
+  { text: "弱水三千，只取一瓢；繁花过眼，守住主线。", author: "交易心法" },
+  { text: "敬畏市场，知行合一；多看少动，从容行远。", author: "投资心法" },
+  { text: "宁可错过，绝不做错；知止常止，方得始终。", author: "交易心法" },
+  { text: "愿你眼中有星辰，心中有纪律，行稳致远，账户长虹。", author: "市场祝福" },
+];
+
+const quoteIdx = ref(Math.floor(Math.random() * MARKET_QUOTES.length));
+const currentQuote = computed(() => MARKET_QUOTES[quoteIdx.value]);
+const quoteFading = ref(false);
+
+function nextQuote() {
+  if (quoteFading.value) return;
+  quoteFading.value = true;
+  setTimeout(() => {
+    let next;
+    do {
+      next = Math.floor(Math.random() * MARKET_QUOTES.length);
+    } while (next === quoteIdx.value && MARKET_QUOTES.length > 1);
+    quoteIdx.value = next;
+    quoteFading.value = false;
+  }, 160);
+}
+
 // ===== 行情快照:meta(统计) + list(活跃榜) =====
 const fetchedAt = ref("");
 const source = ref("");
@@ -304,17 +370,72 @@ onUnmounted(() => clearInterval(timer));
 
 /* ===== 刊头 ===== */
 .mast {
-  display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 20px;
   padding: 20px 0 18px; border-bottom: 1px solid var(--line-strong);
 }
+.mastLeft { flex: 1; min-width: 0; }
 .mastDate {
   font-size: 12px; letter-spacing: .14em; color: var(--dim);
   font-family: var(--mono); text-transform: uppercase;
 }
 .mastHi { font-size: 30px; font-weight: 650; letter-spacing: .01em; margin-top: 8px; }
+.mastRight {
+  flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 9px;
+  max-width: 60%;
+}
+.mastQuote {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--txt);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: all .2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .04);
+}
+.mastQuote:hover {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
+}
+.mastQuote.fading {
+  opacity: 0;
+  transform: translateY(-2px);
+}
+.quoteIcon {
+  width: 11px; height: 11px; flex-shrink: 0;
+  color: var(--accent);
+  opacity: .85;
+}
+.quoteText {
+  letter-spacing: .02em;
+  font-weight: 450;
+  line-height: 1.4;
+}
+.quoteAuthor {
+  color: var(--dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.quoteRefresh {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--dim);
+  opacity: .5;
+  margin-left: 2px;
+  transition: transform .25s ease, opacity .15s ease, color .15s ease;
+}
+.mastQuote:hover .quoteRefresh {
+  opacity: .9;
+  color: var(--accent);
+  transform: rotate(45deg);
+}
 .mastMeta {
   flex: none; display: inline-flex; align-items: center; gap: 8px;
-  font-size: 12px; color: var(--dim); font-family: var(--mono); padding-bottom: 4px;
+  font-size: 12px; color: var(--dim); font-family: var(--mono); padding-bottom: 2px;
 }
 .liveDot {
   width: 7px; height: 7px; border-radius: 50%;
@@ -479,7 +600,9 @@ onUnmounted(() => clearInterval(timer));
   .cols { grid-template-columns: 1fr; gap: 0; }
 }
 @media (max-width: 640px) {
-  .mast { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .mast { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .mastRight { align-items: flex-start; max-width: 100%; width: 100%; gap: 8px; }
+  .mastQuote { border-radius: 8px; flex-wrap: wrap; }
   .mastHi { font-size: 24px; }
   .blk { margin-top: 26px; }
 }

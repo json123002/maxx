@@ -187,7 +187,7 @@ export async function fetchNote(code) {
 export async function saveNote(code, content) {
   return api(`/api/desk/note/${code}`, {
     method: "PUT",
-    body: JSON.stringify({ content }),
+    body: { content },
   });
 }
 

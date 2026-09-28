@@ -5,7 +5,7 @@
    右栏 = 固定高度工作区,顶部页签:实时监控 / 盘口资金 / 基本分析 / 公司架构,
    选中的股票驱动个股视图内容(参考 TradingView watchlist 交互)。
    数据:股票池/星标/分组/F10/同花顺挂单异动 走后端;实时行情/盘口异动/资金流走东财 JSONP 直连。 */
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { track } from "../api/client";
 import { cls, fmtN, fmtYiT } from "../utils/format";
@@ -143,8 +143,16 @@ function pickTab(t) {
     const first = starRows.value[0] || rows.value[0];
     if (first) { userPick = true; selected.value = first.f12; }
   }
-  if (t === "note" && selected.value && noteCode.value !== selected.value) {
-    loadNote(selected.value);
+  if (t === "note" && selected.value) {
+    if (noteCode.value !== selected.value) {
+      loadNote(selected.value);
+    } else {
+      nextTick(() => {
+        if (editorRef.value && noteContent.value && !editorRef.value.innerHTML) {
+          editorRef.value.innerHTML = noteContent.value;
+        }
+      });
+    }
   }
   tab.value = t;
 }
@@ -734,7 +742,8 @@ function openAnalysis(code) {
   if (c) anaRef.value?.open(c);
 }
 
-/* ---------- 操盘笔记 / 个股备忘 ---------- */
+/* ---------- 操盘笔记 / 个股备忘 (富文本可视化编辑) ---------- */
+const editorRef = ref(null);
 const noteCode = ref("");
 const noteContent = ref("");
 const noteUpdatedAt = ref("");
@@ -743,12 +752,74 @@ const noteSaving = ref(false);
 const noteDirty = ref(false);
 let noteTimer = null;
 
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function formatContentToHtml(raw) {
+  if (!raw) return "";
+  // 如果已是 HTML 结构（含常见块级标签），直接返回
+  if (/<(p|div|h[1-6]|ul|ol|blockquote|table|span|hr)\b/i.test(raw)) {
+    return raw;
+  }
+  // 兼容旧版 Markdown / 纯文本，自动转换为精美可视化 HTML
+  const lines = raw.split("\n");
+  let inList = false;
+  let html = "";
+  for (const line of lines) {
+    const l = line.trimEnd();
+    if (!l) {
+      if (inList) { html += "</ul>"; inList = false; }
+      html += "<p><br></p>";
+      continue;
+    }
+    if (l.startsWith("### ")) {
+      if (inList) { html += "</ul>"; inList = false; }
+      html += `<h3 class="visH3">${escapeHtml(l.slice(4))}</h3>`;
+    } else if (l.startsWith("## ") || l.startsWith("# ")) {
+      if (inList) { html += "</ul>"; inList = false; }
+      const text = l.startsWith("## ") ? l.slice(3) : l.slice(2);
+      html += `<h2 class="visH2">${escapeHtml(text)}</h2>`;
+    } else if (l.startsWith("- [ ] ")) {
+      if (inList) { html += "</ul>"; inList = false; }
+      html += `<div class="visTodo"><input type="checkbox" /> <span>${escapeHtml(l.slice(6))}</span></div>`;
+    } else if (l.startsWith("- [x] ")) {
+      if (inList) { html += "</ul>"; inList = false; }
+      html += `<div class="visTodo isDone"><input type="checkbox" checked /> <span>${escapeHtml(l.slice(6))}</span></div>`;
+    } else if (l.startsWith("- ") || l.startsWith("* ")) {
+      if (!inList) { html += "<ul>"; inList = true; }
+      const body = l.slice(2).replace(/\*\*(.*?)\*\*/g, "<b>$1</b>");
+      html += `<li>${body}</li>`;
+    } else if (l.startsWith("> ")) {
+      if (inList) { html += "</ul>"; inList = false; }
+      html += `<blockquote class="visCallout">${escapeHtml(l.slice(2))}</blockquote>`;
+    } else {
+      if (inList) { html += "</ul>"; inList = false; }
+      const body = escapeHtml(l).replace(/\*\*(.*?)\*\*/g, "<b>$1</b>");
+      html += `<p>${body}</p>`;
+    }
+  }
+  if (inList) html += "</ul>";
+  return html;
+}
+
+const noteTextLength = computed(() => {
+  if (editorRef.value) {
+    return editorRef.value.innerText.replace(/\s+/g, "").length;
+  }
+  return noteContent.value ? noteContent.value.replace(/<[^>]+>/g, "").replace(/\s+/g, "").length : 0;
+});
+
 async function loadNote(code) {
   if (!code) {
     noteCode.value = "";
     noteContent.value = "";
     noteUpdatedAt.value = "";
     noteDirty.value = false;
+    if (editorRef.value) editorRef.value.innerHTML = "";
     return;
   }
   if (noteDirty.value && noteCode.value && noteCode.value !== code) {
@@ -759,9 +830,15 @@ async function loadNote(code) {
   try {
     const res = await fetchNote(code);
     if (noteCode.value === code) {
-      noteContent.value = res.content || "";
+      const html = formatContentToHtml(res.content || "");
+      noteContent.value = html;
       noteUpdatedAt.value = res.updated_at ? res.updated_at.slice(11, 19) || res.updated_at : "";
       noteDirty.value = false;
+      nextTick(() => {
+        if (editorRef.value) {
+          editorRef.value.innerHTML = html;
+        }
+      });
     }
   } catch (err) {
     if (err.message !== "unauthorized") {
@@ -778,7 +855,7 @@ async function flushSaveNote(isAuto = false) {
   if (!noteCode.value || !noteDirty.value) return;
   noteSaving.value = true;
   const savingCode = noteCode.value;
-  const savingContent = noteContent.value;
+  const savingContent = editorRef.value ? editorRef.value.innerHTML : noteContent.value;
   try {
     await saveNote(savingCode, savingContent);
     if (noteCode.value === savingCode) {
@@ -799,7 +876,10 @@ async function flushSaveNote(isAuto = false) {
   }
 }
 
-function onNoteInput() {
+function onCanvasInput() {
+  if (editorRef.value) {
+    noteContent.value = editorRef.value.innerHTML;
+  }
   noteDirty.value = true;
   if (noteTimer) clearTimeout(noteTimer);
   noteTimer = setTimeout(() => {
@@ -807,7 +887,21 @@ function onNoteInput() {
   }, 1200);
 }
 
-function onNoteKeydown(e) {
+function onCanvasClick(e) {
+  if (e.target && e.target.type === "checkbox") {
+    const parent = e.target.closest(".visTodo");
+    if (e.target.checked) {
+      e.target.setAttribute("checked", "checked");
+      if (parent) parent.classList.add("isDone");
+    } else {
+      e.target.removeAttribute("checked");
+      if (parent) parent.classList.remove("isDone");
+    }
+    onCanvasInput();
+  }
+}
+
+function onCanvasKeydown(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === "s") {
     e.preventDefault();
     if (noteTimer) clearTimeout(noteTimer);
@@ -815,57 +909,134 @@ function onNoteKeydown(e) {
   }
 }
 
-const NOTE_TEMPLATES = [
+/* ---------- 可视化富文本编辑命令 ---------- */
+function execCmd(command, value = null) {
+  if (!editorRef.value) return;
+  editorRef.value.focus();
+  document.execCommand(command, false, value);
+  onCanvasInput();
+}
+
+function insertHtmlAtCursor(html) {
+  if (!editorRef.value) return;
+  editorRef.value.focus();
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) {
+    editorRef.value.innerHTML += html;
+    onCanvasInput();
+    return;
+  }
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  const frag = document.createDocumentFragment();
+  let node, lastNode;
+  while ((node = el.firstChild)) {
+    lastNode = frag.appendChild(node);
+  }
+  range.insertNode(frag);
+  if (lastNode) {
+    range = range.cloneRange();
+    range.setStartAfter(lastNode);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+  onCanvasInput();
+}
+
+function insertTodo() {
+  insertHtmlAtCursor('<div class="visTodo"><input type="checkbox" /> <span>待办任务项…</span></div><p><br></p>');
+}
+
+function insertCallout() {
+  insertHtmlAtCursor('<blockquote class="visCallout">💡 <b>重点备忘：</b>在此输入核心逻辑与盘中要点…</blockquote><p><br></p>');
+}
+
+function insertDivider() {
+  insertHtmlAtCursor('<hr class="visHr" /><p><br></p>');
+}
+
+function toggleHighlight() {
+  execCmd("hiliteColor", "#fef08a");
+}
+
+function insertTag(type, label) {
+  const clsMap = {
+    buy: "tagBuy",
+    stop: "tagStop",
+    target: "tagTarget",
+    logic: "tagLogic",
+    warn: "tagWarn",
+  };
+  const c = clsMap[type] || "tagLogic";
+  insertHtmlAtCursor(`&nbsp;<span class="visTag ${c}" contenteditable="false">${label}</span>&nbsp;`);
+}
+
+function insertPriceBadge(label, price, changePct) {
+  if (price === undefined || price === null || price === "—") return;
+  const chgCls = changePct > 0 ? "up" : changePct < 0 ? "down" : "";
+  const pctStr = typeof changePct === "number" ? (changePct > 0 ? "+" : "") + changePct.toFixed(2) + "%" : "";
+  insertHtmlAtCursor(`&nbsp;<span class="visPriceBadge ${chgCls}" contenteditable="false">${label} ${fmtN(price)} ${pctStr}</span>&nbsp;`);
+}
+
+function insertMetricBadge(label, val) {
+  if (val === undefined || val === null || val === "—") return;
+  insertHtmlAtCursor(`&nbsp;<span class="visPriceBadge dim" contenteditable="false">${label} ${val}</span>&nbsp;`);
+}
+
+const VISUAL_TEMPLATES = [
   {
-    label: "+ 操盘计划",
-    text: `### 🎯 操盘计划
-- **计划买入价**：
-- **目标止盈位**：
-- **底线止损位**：
-- **计划仓位**：
-- **买入依据**：
+    label: "+ 🎯 操盘计划",
+    html: `
+<h2 class="visH2">🎯 操盘执行计划</h2>
+<blockquote class="visCallout">💡 <b>执行原则：</b>制定明确进出场计划，顺势而为，知行合一。</blockquote>
+<div class="visTodo"><input type="checkbox" /> <span><b>计划买入：</b>在关键支撑均线/突破平台附近逢低分批介入</span></div>
+<div class="visTodo"><input type="checkbox" /> <span><b>第一目标：</b>前高阻力位分批减仓锁定利润</span></div>
+<div class="visTodo"><input type="checkbox" /> <span><b>底线止损：</b>跌破关键防守位坚决执行纪律</span></div>
+<div class="visTodo"><input type="checkbox" /> <span><b>仓位管控：</b>严格控制单票风险敞口</span></div>
+<p><br></p>
 `,
   },
   {
-    label: "+ 核心逻辑",
-    text: `### 💡 核心逻辑
-- **所属板块/主线**：
-- **催化事件/驱动力**：
-- **主力资金态度**：
-- **技术形态要点**：
+    label: "+ 💡 核心逻辑",
+    html: `
+<h2 class="visH2">💡 核心驱动逻辑</h2>
+<ul>
+  <li><b>所属主线板块：</b>受益于行业高景气度与重大政策催化</li>
+  <li><b>主力资金动向：</b>大单与超大单持续净流入，盘口承接有力</li>
+  <li><b>形态与量价配合：</b>均线多头排列，量价稳步温和放大</li>
+</ul>
+<p><br></p>
 `,
   },
   {
-    label: "+ 盘后复盘",
-    text: `### 📝 盘后复盘
-- **今日实际走势**：
-- **盘口承接与异动**：
-- **次日操作预案**：
+    label: "+ 📝 盘后复盘",
+    html: `
+<h2 class="visH2">📝 盘后复盘备忘</h2>
+<blockquote class="visCallout">📊 <b>今日走势综述：</b>盘面强弱与预期对比，承接是否充分。</blockquote>
+<ul>
+  <li><b>盘中分时异动：</b>上午放量拉升，午后高位震荡洗盘，无异常砸盘</li>
+  <li><b>次日操作预案：</b>若集合竞价放量高开则顺势持股；低开跌破均线减仓观望</li>
+</ul>
+<p><br></p>
 `,
   },
   {
-    label: "+ 风险提示",
-    text: `### ⚠️ 风险提示
-- **关键防守点位**：
-- **减仓/离场触发条件**：
-- **潜在不确定性**：
+    label: "+ 🛑 止损预案",
+    html: `
+<h2 class="visH2">🛑 风险控制与止损警戒</h2>
+<blockquote class="visCallout warn">⚠️ <b>底线提示：</b>本金安全永远第一，绝不抗单，不侥幸补仓。</blockquote>
+<div class="visTodo"><input type="checkbox" /> <span><b>核心防守点位：</b>以近期起涨点或日均线为最后防守线</span></div>
+<div class="visTodo"><input type="checkbox" /> <span><b>应急离场机制：</b>如盘中放量跌破防守线，立即无条件止损出局</span></div>
+<p><br></p>
 `,
   },
 ];
 
-function insertTemplate(tpl) {
-  const current = noteContent.value || "";
-  const sep = current.length > 0 && !current.endsWith("\n\n") ? (current.endsWith("\n") ? "\n" : "\n\n") : "";
-  noteContent.value = current + sep + tpl.text;
-  onNoteInput();
-}
-
-function insertPrice(priceText) {
-  if (!priceText) return;
-  const current = noteContent.value || "";
-  const sep = current.length > 0 && !current.endsWith("\n") && !current.endsWith(" ") ? " " : "";
-  noteContent.value = current + sep + priceText;
-  onNoteInput();
+function applyTemplate(tpl) {
+  insertHtmlAtCursor(tpl.html);
 }
 
 watch(selected, (code) => {
@@ -1514,45 +1685,93 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <!-- 快捷模版与点位速录工具条 -->
-              <div class="noteToolbar">
-                <div class="tplGroup">
-                  <span class="tplCap">快捷模版:</span>
-                  <button v-for="tpl in NOTE_TEMPLATES" :key="tpl.label" class="tplBtn" @click="insertTemplate(tpl)">
-                    {{ tpl.label }}
-                  </button>
+              <!-- 可视化富文本编辑工具栏 (对齐业界顶级笔记软件 Notion / Apple Notes) -->
+              <div class="visToolbar">
+                <!-- 文本块级排版 -->
+                <div class="vtGroup">
+                  <button class="vtBtn" title="普通正文段落" @click="execCmd('formatBlock', '<p>')">正文</button>
+                  <button class="vtBtn h" title="大标题 (H2)" @click="execCmd('formatBlock', '<h2>')">H2</button>
+                  <button class="vtBtn h" title="中标题 (H3)" @click="execCmd('formatBlock', '<h3>')">H3</button>
                 </div>
-                <div class="refGroup" v-if="sel">
-                  <span class="tplCap">点位速录:</span>
-                  <button class="tplBtn priceBtn" @click="insertPrice('现价:' + fmtN(sel.f2))" :title="'点击填入现价 ' + fmtN(sel.f2)">
+                <div class="vtSep"></div>
+
+                <!-- 行内文字修饰 -->
+                <div class="vtGroup">
+                  <button class="vtBtn iconBtn" title="加粗 (Ctrl+B)" @click="execCmd('bold')"><b>B</b></button>
+                  <button class="vtBtn iconBtn" title="斜体 (Ctrl+I)" @click="execCmd('italic')"><i>I</i></button>
+                  <button class="vtBtn iconBtn" title="删除线" @click="execCmd('strikeThrough')"><s>S</s></button>
+                  <button class="vtBtn iconBtn hl" title="重点背景高亮" @click="toggleHighlight()">🖍️</button>
+                </div>
+                <div class="vtSep"></div>
+
+                <!-- 块级结构：清单、待办、引用框、分割线 -->
+                <div class="vtGroup">
+                  <button class="vtBtn" title="无序项目列表" @click="execCmd('insertUnorderedList')">• 列表</button>
+                  <button class="vtBtn" title="数字序号列表" @click="execCmd('insertOrderedList')">1. 列表</button>
+                  <button class="vtBtn todoBtn" title="插入待办复选清单 (直接点击方框勾选完成)" @click="insertTodo()">☑ 待办</button>
+                  <button class="vtBtn" title="插入重点备忘引用框" @click="insertCallout()">❝ 重点框</button>
+                  <button class="vtBtn" title="插入水平分割线" @click="insertDivider()">─ 分割线</button>
+                </div>
+                <div class="vtSep"></div>
+
+                <!-- 操盘胶囊速录标签 -->
+                <div class="vtGroup">
+                  <span class="vtLabel">速录:</span>
+                  <button class="vtTagBtn tagBuy" title="插入买点标签" @click="insertTag('buy', '🎯 计划买入')">🎯 买点</button>
+                  <button class="vtTagBtn tagStop" title="插入止损标签" @click="insertTag('stop', '🛑 防守止损')">🛑 止损</button>
+                  <button class="vtTagBtn tagTarget" title="插入目标标签" @click="insertTag('target', '🚀 目标止盈')">🚀 止盈</button>
+                  <button class="vtTagBtn tagLogic" title="插入核心逻辑标签" @click="insertTag('logic', '💡 核心逻辑')">💡 逻辑</button>
+                  <button class="vtTagBtn tagWarn" title="插入风险警示标签" @click="insertTag('warn', '⚠️ 风险警示')">⚠️ 警示</button>
+                </div>
+                <div class="vtSep"></div>
+
+                <!-- 盘口点位速录 -->
+                <div class="vtGroup" v-if="sel">
+                  <span class="vtLabel">点位:</span>
+                  <button class="vtBtn price" @click="insertPriceBadge('现价', sel.f2, sel.f3)" :title="'点击填入现价 ' + fmtN(sel.f2)">
                     现价 <b :class="cls(sel.f3)">{{ fmtN(sel.f2) }}</b>
                   </button>
-                  <button v-if="sel.f8" class="tplBtn" @click="insertPrice('换手:' + fmtN(sel.f8, 1) + '%')">
+                  <button v-if="sel.f8" class="vtBtn" @click="insertMetricBadge('换手', fmtN(sel.f8, 1) + '%')">
                     换手 <b>{{ fmtN(sel.f8, 1) }}%</b>
                   </button>
-                  <button v-if="sel.f10" class="tplBtn" @click="insertPrice('量比:' + fmtN(sel.f10))">
+                  <button v-if="sel.f10" class="vtBtn" @click="insertMetricBadge('量比', fmtN(sel.f10))">
                     量比 <b>{{ fmtN(sel.f10) }}</b>
+                  </button>
+                </div>
+                <div class="vtSep"></div>
+
+                <!-- 可视化结构化操盘模版 -->
+                <div class="vtGroup">
+                  <span class="vtLabel">模版:</span>
+                  <button v-for="tpl in VISUAL_TEMPLATES" :key="tpl.label" class="vtTplBtn" @click="applyTemplate(tpl)">
+                    {{ tpl.label }}
                   </button>
                 </div>
               </div>
 
-              <!-- 编辑区域 -->
+              <!-- 可视化文档编辑画布 (WYSIWYG Document Canvas) -->
               <div class="noteEditBox">
                 <div v-if="noteLoading" class="noteLoadingMask">
                   <i class="dSpin"></i>正在载入笔记…
                 </div>
-                <textarea
-                  v-model="noteContent"
-                  class="noteTextarea"
-                  placeholder="记录该股的操盘计划、进出场逻辑、阻力支撑位、盘后复盘心得…&#10;支持 Markdown 格式。切换股票、切换标签或离开页面均会自动保存至云端。"
-                  @input="onNoteInput"
-                  @keydown="onNoteKeydown"
-                ></textarea>
+                <div
+                  ref="editorRef"
+                  class="visCanvas"
+                  contenteditable="true"
+                  data-placeholder="在此输入操盘笔记、投资哲学、阻力支撑与交易复盘…&#10;可使用上方工具栏进行标题排版、待办清单、重点高亮与快捷速录。支持 Ctrl+S 立即保存，换股离开自动暂存。"
+                  @input="onCanvasInput"
+                  @click="onCanvasClick"
+                  @keydown="onCanvasKeydown"
+                ></div>
                 <div class="noteFoot">
-                  <span class="noteTip">💡 支持 Markdown 语法 · 快捷键 <kbd>Ctrl+S</kbd> 立即保存 · 换股自动暂存</span>
+                  <span class="noteTip">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                    </svg>
+                    可视化文档模式 · 快捷键 <kbd>Ctrl+B</kbd> 加粗 · <kbd>Ctrl+S</kbd> 立即保存 · 换股自动暂存
+                  </span>
                   <span class="noteStats">
-                    <span>{{ (noteContent || '').length }} 字符</span>
-                    <span>{{ noteContent ? noteContent.split('\n').length : 0 }} 行</span>
+                    <span>{{ noteTextLength }} 字符</span>
                   </span>
                 </div>
               </div>
@@ -2223,51 +2442,144 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
   transform: none;
 }
-.noteToolbar {
+/* ===== 可视化富文本工具栏 (Notion / Apple Notes 风格) ===== */
+.visToolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 6px;
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 12px;
+  border-radius: 9px;
+  padding: 6px 10px;
 }
-.tplGroup, .refGroup {
+.vtGroup {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
 }
-.tplCap {
+.vtSep {
+  width: 1px;
+  height: 18px;
+  background: var(--line-strong);
+  margin: 0 4px;
+}
+.vtLabel {
   font-size: 11px;
   color: var(--dim);
-  font-weight: 500;
+  font-weight: 550;
   margin-right: 2px;
 }
-.tplBtn {
+.vtBtn {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 5px;
   color: var(--txt);
   font-family: inherit;
   font-size: 11.5px;
-  padding: 3px 9px;
+  padding: 3px 8px;
   cursor: pointer;
   transition: all 0.12s;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
+  user-select: none;
 }
-.tplBtn:hover {
+.vtBtn:hover {
   border-color: var(--accent);
   color: var(--accent);
   background: var(--accent-dim);
 }
-.priceBtn b {
+.vtBtn.h {
+  font-weight: 700;
   font-family: var(--mono);
 }
+.vtBtn.iconBtn {
+  padding: 3px 7px;
+  min-width: 24px;
+  justify-content: center;
+}
+.vtBtn.hl:hover {
+  background: #fef08a;
+  color: #854d0e;
+}
+.vtBtn.todoBtn {
+  color: var(--accent);
+  font-weight: 600;
+}
+.vtBtn.price b {
+  font-family: var(--mono);
+}
+.vtTagBtn {
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 550;
+  padding: 2px 7px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.12s;
+  user-select: none;
+}
+.vtTagBtn.tagBuy {
+  color: var(--up);
+  background: color-mix(in srgb, var(--up) 10%, var(--panel));
+  border-color: color-mix(in srgb, var(--up) 25%, transparent);
+}
+.vtTagBtn.tagBuy:hover {
+  background: color-mix(in srgb, var(--up) 22%, var(--panel));
+}
+.vtTagBtn.tagStop {
+  color: var(--down);
+  background: color-mix(in srgb, var(--down) 10%, var(--panel));
+  border-color: color-mix(in srgb, var(--down) 25%, transparent);
+}
+.vtTagBtn.tagStop:hover {
+  background: color-mix(in srgb, var(--down) 22%, var(--panel));
+}
+.vtTagBtn.tagTarget {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.vtTagBtn.tagTarget:hover {
+  background: color-mix(in srgb, var(--accent) 25%, var(--panel));
+}
+.vtTagBtn.tagLogic {
+  color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.25);
+}
+.vtTagBtn.tagLogic:hover {
+  background: rgba(139, 92, 246, 0.2);
+}
+.vtTagBtn.tagWarn {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+.vtTagBtn.tagWarn:hover {
+  background: rgba(245, 158, 11, 0.2);
+}
+.vtTplBtn {
+  background: var(--panel);
+  border: 1px dashed var(--line-strong);
+  border-radius: 5px;
+  color: var(--txt);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.vtTplBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* ===== 可视化文档编辑画布 (WYSIWYG Document Canvas) ===== */
 .noteEditBox {
   position: relative;
   display: flex;
@@ -2295,26 +2607,152 @@ onBeforeUnmount(() => {
   color: #fff;
   backdrop-filter: blur(2px);
 }
-.noteTextarea {
+.visCanvas {
   width: 100%;
-  min-height: 380px;
+  min-height: 400px;
   max-height: 65vh;
-  resize: vertical;
+  overflow-y: auto;
   background: transparent;
-  border: none;
   outline: none;
   color: var(--txt);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, monospace;
-  font-size: 13.5px;
-  line-height: 1.7;
-  padding: 14px 16px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.8;
+  padding: 16px 20px;
   box-sizing: border-box;
 }
-.noteTextarea::placeholder {
+.visCanvas:empty::before {
+  content: attr(data-placeholder);
+  color: var(--dim);
+  opacity: 0.6;
+  pointer-events: none;
+  display: block;
+  line-height: 1.8;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+.visCanvas h2, .visCanvas .visH2 {
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--txt);
+  margin: 16px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.visCanvas h3, .visCanvas .visH3 {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--txt);
+  margin: 12px 0 6px;
+}
+.visCanvas p {
+  margin: 6px 0;
+}
+.visCanvas ul, .visCanvas ol {
+  margin: 6px 0;
+  padding-left: 24px;
+}
+.visCanvas li {
+  margin: 3px 0;
+}
+.visCanvas blockquote, .visCanvas .visCallout {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  border-radius: 0 8px 8px 0;
+  color: var(--txt);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.visCanvas .visCallout.warn {
+  border-left-color: var(--hot);
+  background: color-mix(in srgb, var(--hot) 8%, var(--panel));
+}
+.visCanvas .visTodo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 13.5px;
+}
+.visCanvas .visTodo input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+.visCanvas .visTodo.isDone span {
+  text-decoration: line-through;
   color: var(--dim);
   opacity: 0.65;
-  font-size: 12.5px;
-  line-height: 1.7;
+}
+.visCanvas .visTag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 4px;
+  margin: 0 2px;
+  vertical-align: 1px;
+  user-select: none;
+}
+.visCanvas .visTag.tagBuy {
+  color: var(--up);
+  background: color-mix(in srgb, var(--up) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--up) 30%, transparent);
+}
+.visCanvas .visTag.tagStop {
+  color: var(--down);
+  background: color-mix(in srgb, var(--down) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--down) 30%, transparent);
+}
+.visCanvas .visTag.tagTarget {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.visCanvas .visTag.tagLogic {
+  color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+.visCanvas .visTag.tagWarn {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.visCanvas .visPriceBadge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 4px;
+  margin: 0 2px;
+  vertical-align: 1px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  user-select: none;
+}
+.visCanvas .visPriceBadge.up {
+  color: var(--up);
+  border-color: color-mix(in srgb, var(--up) 30%, transparent);
+}
+.visCanvas .visPriceBadge.down {
+  color: var(--down);
+  border-color: color-mix(in srgb, var(--down) 30%, transparent);
+}
+.visCanvas .visPriceBadge.dim {
+  color: var(--dim);
+}
+.visCanvas hr, .visCanvas .visHr {
+  border: none;
+  border-top: 1px solid var(--line-strong);
+  margin: 16px 0;
 }
 .noteFoot {
   display: flex;
@@ -2329,7 +2767,10 @@ onBeforeUnmount(() => {
 .noteTip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+}
+.noteTip svg {
+  color: var(--accent);
 }
 .noteTip kbd {
   font-family: var(--mono);

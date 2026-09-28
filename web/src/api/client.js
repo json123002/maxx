@@ -7,6 +7,8 @@ export async function apiFetch(url, opts = {}) {
   if (opts.body && typeof opts.body === "object") {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(opts.body);
+  } else if (opts.body && typeof opts.body === "string" && !opts.headers["Content-Type"]) {
+    opts.headers["Content-Type"] = "application/json";
   }
   const r = await fetch(url, opts);
   if (r.status === 401 || r.status === 403) {
@@ -21,7 +23,19 @@ export async function apiFetch(url, opts = {}) {
 export async function api(url, opts) {
   const r = await apiFetch(url, opts);
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.detail || "HTTP " + r.status);
+  if (!r.ok) {
+    let msg = "HTTP " + r.status;
+    if (d && d.detail) {
+      if (typeof d.detail === "string") {
+        msg = d.detail;
+      } else if (Array.isArray(d.detail)) {
+        msg = d.detail.map((e) => (e && e.msg ? e.msg : JSON.stringify(e))).join("; ");
+      } else if (typeof d.detail === "object") {
+        msg = JSON.stringify(d.detail);
+      }
+    }
+    throw new Error(msg);
+  }
   return d;
 }
 
