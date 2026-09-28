@@ -1747,13 +1747,16 @@ onBeforeUnmount(() => {
                       <i class="noteDot synced"></i>已同步云端
                     </template>
                   </span>
-                  <button class="noteSaveBtn" :disabled="noteSaving || !noteDirty" @click="flushSaveNote(false)" title="快捷键 Ctrl+S / ⌘S">
-                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <button class="noteSaveBtn" :class="{ isSynced: !noteDirty && !noteSaving }" :disabled="noteSaving || !noteDirty" @click="flushSaveNote(false)" title="已自动同步云端 · 快捷键 Ctrl+S / ⌘S">
+                    <svg v-if="!noteDirty && !noteSaving" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                    <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
                       <polyline points="17 21 17 13 7 13 7 21"></polyline>
                       <polyline points="7 3 7 8 15 8"></polyline>
                     </svg>
-                    立即保存
+                    {{ noteSaving ? "保存中…" : (noteDirty ? "立即保存" : "已保存") }}
                   </button>
                 </div>
               </div>
@@ -2542,9 +2545,9 @@ onBeforeUnmount(() => {
   gap: 6px;
   background: var(--accent);
   color: #fff;
-  border: none;
+  border: 1px solid transparent;
   border-radius: 6px;
-  padding: 5px 13px;
+  padding: 4px 12px;
   font-size: 12px;
   font-family: inherit;
   font-weight: 550;
@@ -2556,9 +2559,17 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 .noteSaveBtn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+  opacity: 0.85;
+  cursor: default;
   transform: none;
+}
+.noteSaveBtn.isSynced {
+  background: var(--panel-2);
+  color: var(--dim);
+  border-color: var(--line);
+}
+.noteSaveBtn.isSynced svg {
+  color: #10b981;
 }
 /* ===== 可视化富文本工具栏 (Notion / Apple Notes 风格) ===== */
 .visToolbar {
