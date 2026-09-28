@@ -17,7 +17,6 @@ import {
   SafetyCertificateOutlined,
   KeyOutlined,
   LogoutOutlined,
-  CheckCircleOutlined,
   ReloadOutlined,
   PlusOutlined,
   CloseOutlined,
@@ -566,22 +565,6 @@ onMounted(() => {
             </div>
             <div class="rowRight">
               <span class="roleTag">{{ roleText }}</span>
-            </div>
-          </div>
-
-          <!-- 风险声明确认留痕 -->
-          <div class="cardRow">
-            <div class="rowIcon"><CheckCircleOutlined /></div>
-            <div class="rowBody">
-              <div class="rowTitle">
-                <span>量化复盘风险免责协议</span>
-              </div>
-              <div class="rowDesc">
-                已留痕签署用户量化交易与回测分析风险揭示书，符合系统使用合规要求。
-              </div>
-            </div>
-            <div class="rowRight">
-              <span class="statusTag green">已签署确认</span>
             </div>
           </div>
 
