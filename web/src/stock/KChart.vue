@@ -7,11 +7,19 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch, watchEffect } from "vue";
 import { detectPhases, selectVisiblePhase } from "./phases.js";
 import { themeMode } from "../utils/theme";
+import { macdSeries, kdjSeries } from "../analysis/indicators";
 
 const props = defineProps({
   bars: { type: Array, default: () => [] }, // [{date,open,close,high,low,vol,pct,turnover}]
   loading: { type: Boolean, default: false }, // 取数中:空态显示加载动画而非"加载失败"
 });
+
+const subIndicator = ref("VOL"); // VOL | MACD | KDJ
+function setSubInd(ind) {
+  subIndicator.value = ind;
+  draw();
+}
+
 
 const wrap = ref(null);
 const cv = ref(null);
@@ -232,18 +240,124 @@ function draw() {
     ctx.stroke();
   });
 
-  // 成交量柱
-  slice.forEach((b, i) => {
-    ctx.fillStyle = b.close >= b.open ? cUp : cDown;
-    ctx.globalAlpha = 0.75;
-    ctx.fillRect(x(i) - bw / 2, vy(b.vol), bw, volTop + volH - vy(b.vol));
-    ctx.globalAlpha = 1;
-  });
+  const cur = hoverIdx.value >= start && hoverIdx.value < view.end ? hoverIdx.value : n - 1;
+
+  // 副图绘制 (VOL / MACD / KDJ)
+  if (subIndicator.value === "VOL") {
+    slice.forEach((b, i) => {
+      ctx.fillStyle = b.close >= b.open ? cUp : cDown;
+      ctx.globalAlpha = 0.75;
+      ctx.fillRect(x(i) - bw / 2, vy(b.vol), bw, volTop + volH - vy(b.vol));
+      ctx.globalAlpha = 1;
+    });
+    const curB = bars[cur];
+    if (curB) {
+      ctx.textAlign = "left";
+      ctx.fillStyle = cDim;
+      ctx.fillText("VOL: " + fmtVol(curB.vol), PAD_L + 2, volTop - 2);
+    }
+  } else if (subIndicator.value === "MACD") {
+    const allMacd = macdSeries(bars.map((b) => b.close));
+    const mSlice = allMacd.slice(start, view.end);
+    let mMax = 0.001;
+    mSlice.forEach((d) => {
+      if (d) mMax = Math.max(mMax, Math.abs(d.dif), Math.abs(d.dea), Math.abs(d.macd));
+    });
+    const mY = (v) => volTop + volH / 2 - (v / mMax) * (volH / 2 - 2);
+    // 0 轴
+    ctx.strokeStyle = cLine; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD_L, mY(0)); ctx.lineTo(W - PAD_R, mY(0)); ctx.stroke();
+    // MACD 柱
+    mSlice.forEach((d, i) => {
+      if (!d) return;
+      ctx.fillStyle = d.macd >= 0 ? cUp : cDown;
+      const barH = Math.max(1, Math.abs(mY(d.macd) - mY(0)));
+      ctx.fillRect(x(i) - bw / 2, d.macd >= 0 ? mY(d.macd) : mY(0), bw, barH);
+    });
+    // DIF 线
+    ctx.strokeStyle = "#f5a623"; ctx.lineWidth = 1.2; ctx.beginPath();
+    mSlice.forEach((d, i) => {
+      if (!d) return;
+      const px = x(i), py = mY(d.dif);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    // DEA 线
+    ctx.strokeStyle = "#4aa8ff"; ctx.lineWidth = 1.2; ctx.beginPath();
+    mSlice.forEach((d, i) => {
+      if (!d) return;
+      const px = x(i), py = mY(d.dea);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    // 图例
+    const curM = allMacd[cur] || {};
+    ctx.textAlign = "left";
+    let subX = PAD_L + 2;
+    ctx.fillStyle = cDim;
+    ctx.fillText("MACD(12,26,9) ", subX, volTop - 2);
+    subX += ctx.measureText("MACD(12,26,9) ").width;
+    ctx.fillStyle = "#f5a623";
+    ctx.fillText("DIF " + (curM.dif != null ? curM.dif.toFixed(3) : "—") + " ", subX, volTop - 2);
+    subX += ctx.measureText("DIF 0.000 ").width;
+    ctx.fillStyle = "#4aa8ff";
+    ctx.fillText("DEA " + (curM.dea != null ? curM.dea.toFixed(3) : "—") + " ", subX, volTop - 2);
+    subX += ctx.measureText("DEA 0.000 ").width;
+    ctx.fillStyle = (curM.macd || 0) >= 0 ? cUp : cDown;
+    ctx.fillText("MACD " + (curM.macd != null ? curM.macd.toFixed(3) : "—"), subX, volTop - 2);
+  } else if (subIndicator.value === "KDJ") {
+    const allKdj = kdjSeries(bars);
+    const kSlice = allKdj.slice(start, view.end);
+    const kY = (v) => volTop + volH - (Math.max(0, Math.min(100, v)) / 100) * volH;
+    // 20 & 80 参考线
+    ctx.strokeStyle = cLine; ctx.setLineDash([2, 4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD_L, kY(20)); ctx.lineTo(W - PAD_R, kY(20)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(PAD_L, kY(80)); ctx.lineTo(W - PAD_R, kY(80)); ctx.stroke();
+    ctx.setLineDash([]);
+    // K 线
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.2; ctx.beginPath();
+    kSlice.forEach((d, i) => {
+      if (!d) return;
+      const px = x(i), py = kY(d.k);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    // D 线
+    ctx.strokeStyle = "#f5a623"; ctx.lineWidth = 1.2; ctx.beginPath();
+    kSlice.forEach((d, i) => {
+      if (!d) return;
+      const px = x(i), py = kY(d.d);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    // J 线
+    ctx.strokeStyle = "#b678ff"; ctx.lineWidth = 1.2; ctx.beginPath();
+    kSlice.forEach((d, i) => {
+      if (!d) return;
+      const px = x(i), py = kY(d.j);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    // 图例
+    const curK = allKdj[cur] || {};
+    ctx.textAlign = "left";
+    let subX = PAD_L + 2;
+    ctx.fillStyle = cDim;
+    ctx.fillText("KDJ(9,3,3) ", subX, volTop - 2);
+    subX += ctx.measureText("KDJ(9,3,3) ").width;
+    ctx.fillStyle = "#fff";
+    ctx.fillText("K " + (curK.k != null ? curK.k.toFixed(1) : "—") + " ", subX, volTop - 2);
+    subX += ctx.measureText("K 00.0 ").width;
+    ctx.fillStyle = "#f5a623";
+    ctx.fillText("D " + (curK.d != null ? curK.d.toFixed(1) : "—") + " ", subX, volTop - 2);
+    subX += ctx.measureText("D 00.0 ").width;
+    ctx.fillStyle = "#b678ff";
+    ctx.fillText("J " + (curK.j != null ? curK.j.toFixed(1) : "—"), subX, volTop - 2);
+  }
 
   // MA 图例(左上)
   ctx.textAlign = "left";
   let lx = PAD_L + 2;
-  const cur = hoverIdx.value >= start && hoverIdx.value < view.end ? hoverIdx.value : n - 1;
   [5, 10, 20].forEach((p, mi) => {
     const v = mas[mi][cur];
     const t = "MA" + p + " " + (v == null ? "—" : fmtP(v));
@@ -251,6 +365,7 @@ function draw() {
     ctx.fillText(t, lx, 9);
     lx += ctx.measureText(t).width + 14;
   });
+
 
   // 十字光标 + 信息层
   if (hoverIdx.value >= start && hoverIdx.value < view.end) {
@@ -358,6 +473,11 @@ watch(phaseTypes, draw);
               :class="{ on: r.n ? view.count === Math.min(r.n, bars.length) : view.count === bars.length }"
               @click="setRange(r.n)">{{ r.name }}</button>
     </div>
+    <div class="kRanges subIndRanges">
+      <button v-for="ind in ['VOL', 'MACD', 'KDJ']" :key="ind" class="kRange"
+              :class="{ on: subIndicator === ind }"
+              @click="setSubInd(ind)">{{ ind }}</button>
+    </div>
     <canvas
       ref="cv"
       @wheel="onWheel"
@@ -433,6 +553,11 @@ canvas { display: block; cursor: crosshair; touch-action: pan-y; }
   position: absolute; top: 28px; right: 62px; z-index: 2;
   display: flex; gap: 2px; background: var(--panel);
   border: 1px solid var(--line); border-radius: 999px; padding: 2px;
+}
+.subIndRanges {
+  top: auto;
+  bottom: 22px;
+  right: 62px;
 }
 .kRange {
   background: none; border: none; border-radius: 999px; cursor: pointer;

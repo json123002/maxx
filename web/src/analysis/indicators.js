@@ -28,6 +28,46 @@ export function macdLast(closes) {
   const i = dif.length - 1;
   return { dif: dif[i], dea: dea[i], difPrev: dif[i - 1], deaPrev: dea[i - 1] };
 }
+
+export function macdSeries(closes) {
+  if (!closes || closes.length < 2) return [];
+  const e12 = emaSeries(closes, 12), e26 = emaSeries(closes, 26);
+  const dif = e12.map((v, i) => v - e26[i]);
+  const dea = emaSeries(dif, 9);
+  return dif.map((v, i) => ({
+    dif: v,
+    dea: dea[i],
+    macd: (v - dea[i]) * 2,
+  }));
+}
+
+export function kdjSeries(bars, n = 9) {
+  if (!bars || !bars.length) return [];
+  const out = [];
+  let prevK = 50, prevD = 50;
+  for (let i = 0; i < bars.length; i++) {
+    const start = Math.max(0, i - n + 1);
+    const window = bars.slice(start, i + 1);
+    let high = -Infinity, low = Infinity;
+    for (const b of window) {
+      if (b.high != null && b.high > high) high = b.high;
+      if (b.low != null && b.low < low) low = b.low;
+    }
+    const close = bars[i].close;
+    let rsv = 50;
+    if (high > low && close != null) {
+      rsv = ((close - low) / (high - low)) * 100;
+    }
+    const k = (2 / 3) * prevK + (1 / 3) * rsv;
+    const d = (2 / 3) * prevD + (1 / 3) * k;
+    const j = 3 * k - 2 * d;
+    out.push({ k, d, j });
+    prevK = k;
+    prevD = d;
+  }
+  return out;
+}
+
 // 摆动高低点（左右各 k 根确认的分形）
 export function pivots(bars, k = 3) {
   const hi = [], lo = [];

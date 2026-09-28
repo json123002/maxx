@@ -84,7 +84,7 @@ python deploy/verify_frontend.py     # 只读核对线上前端版本及全部�
 | GET /api/quote/meta | 行业计数 + 情绪统计（按所选市场） |
 | GET /api/quote/stock/{code} | 个股详情（名称/行业/最新快照字段） |
 | GET /api/quote/history?date= · GET /api/quote/history/dates | 历史榜单回看（收盘落库数据） |
-| GET /api/radar/1to2 | 涨停雷达：昨日首板 × 今日竞价/量能/资金/空间六维粗筛 |
+| GET /api/radar/1to2 · GET /api/radar/ladder | 涨停雷达：一进二六维粗筛 · 连板天梯榜（高度阶梯/晋级率/炸板池） |
 | GET /api/health | 服务与最近抓取状态（公开） |
 | GET/POST/PATCH/DELETE /api/admin/users | 用户管理（仅管理员） |
 | GET/POST /api/watchlist · DELETE /api/watchlist/{code} · GET /api/watchlist/search | 自选股（登录用户） |

@@ -748,11 +748,24 @@ def test_radar_board_streak_with_history_gap(client, monkeypatch):
     d = client.get("/api/radar/1to2", headers=h).json()
     rows = {r["f12"]: r for r in d["rows"]}
     assert rows["600010"]["board"] == 1 and rows["600009"]["board"] == 2
-    # 排序不变式:所有首板在所有连板之前;统计只含首板
     boards = [r["board"] > 1 for r in d["rows"]]
     assert boards == sorted(boards)
     assert d["stat"]["候选"] == sum(
         1 for r in d["rows"] if r["board"] == 1 and r["verdict"] == "候选")
+
+
+def test_radar_ladder(client):
+    """连板天梯榜接口：未登录 401，登录后返回今日涨停阶梯与概览。"""
+    assert client.get("/api/radar/ladder").status_code == 401
+    h = login(client, "admin", "admin123")
+    res = client.get("/api/radar/ladder", headers=h)
+    assert res.status_code == 200
+    data = res.json()
+    assert "summary" in data
+    assert "tiers" in data
+    assert "tier1" in data["tiers"]
+    assert "total_limit_up" in data["summary"]
+
 
 
 def test_kline_cache(client, monkeypatch):

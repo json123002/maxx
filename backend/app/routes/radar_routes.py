@@ -283,3 +283,136 @@ def radar_1to2(user=Depends(current_user)):
             for v in rank}
     return {"date": t0, "rows": rows, "stat": stat, "rules": RULES,
             "review": review}
+
+
+@router.get("/ladder")
+def radar_ladder(user=Depends(current_user)):
+    """连板天梯榜：全市场涨停梯队、连板高度、昨日晋级率与炸板池。"""
+    conn = get_conn()
+    dates = [r["trade_date"] for r in conn.execute(
+        "SELECT DISTINCT trade_date FROM history ORDER BY trade_date DESC LIMIT 10"
+    ).fetchall()]
+
+    # 今日涨停票（非 ST、非退市）
+    limit_rows = conn.execute(
+        "SELECT code, name, industry, market, f2, f3, f6, f7, f8, f17, f18, f20, f21, f62, f350, f351, limit_up"
+        " FROM latest"
+        " WHERE limit_up = 1 AND name NOT LIKE '%ST%' AND name NOT LIKE '%退%'"
+        " ORDER BY f62 DESC"
+    ).fetchall()
+
+    # 炸板票：最新未涨停，但盘中最高价触及或逼近涨停价（且振幅或涨幅明显）
+    broken_rows = conn.execute(
+        "SELECT code, name, industry, market, f2, f3, f6, f7, f8, f17, f18, f20, f21, f62, f350, f351, limit_up"
+        " FROM latest"
+        " WHERE limit_up = 0 AND f350 IS NOT NULL AND f2 IS NOT NULL"
+        "   AND name NOT LIKE '%ST%' AND name NOT LIKE '%退%'"
+        "   AND (f2 >= f350 * 0.98 OR f7 >= 8.5) AND f3 >= 2.0"
+        " ORDER BY f6 DESC LIMIT 50"
+    ).fetchall()
+
+    codes = [r["code"] for r in limit_rows]
+    streaks = {c: 1 for c in codes}
+
+    # 从历史交易日倒推连板天数
+    if codes and dates:
+        marks = ",".join("?" * len(codes))
+        hist_rows = conn.execute(
+            "SELECT code, trade_date, limit_up FROM history"
+            " WHERE code IN (" + marks + ")"
+            " ORDER BY code, trade_date DESC",
+            codes,
+        ).fetchall()
+        hist_by_code = defaultdict(list)
+        for hr in hist_rows:
+            hist_by_code[hr["code"]].append(hr)
+
+        for c in codes:
+            days = hist_by_code.get(c, [])
+            # 按日期降序检查历史涨停
+            s = 1
+            for d in days:
+                if d["limit_up"] == 1:
+                    s += 1
+                else:
+                    break
+            streaks[c] = s
+
+    # 格式化单只标的
+    def _format_item(r, streak=1):
+        amt_yi = round(r["f6"] / 1e8, 2) if r["f6"] is not None else None
+        cap_yi = round(r["f21"] / 1e8, 1) if r["f21"] is not None else None
+        main_yi = round(r["f62"] / 1e8, 2) if r["f62"] is not None else None
+        return {
+            "code": r["code"],
+            "name": r["name"],
+            "industry": r["industry"] or "其他",
+            "market": r["market"],
+            "price": r["f2"],
+            "pct": r["f3"],
+            "turnover": r["f8"],
+            "amount_yi": amt_yi,
+            "free_cap_yi": cap_yi,
+            "main_net_yi": main_yi,
+            "streak": streak,
+            "limit_up": bool(r["limit_up"]),
+        }
+
+    ladder_items = [_format_item(r, streaks.get(r["code"], 1)) for r in limit_rows]
+    broken_items = [_format_item(r, 0) for r in broken_rows]
+
+    # 按连板数分组
+    tiers = {
+        "tier5plus": [it for it in ladder_items if it["streak"] >= 5],
+        "tier4": [it for it in ladder_items if it["streak"] == 4],
+        "tier3": [it for it in ladder_items if it["streak"] == 3],
+        "tier2": [it for it in ladder_items if it["streak"] == 2],
+        "tier1": [it for it in ladder_items if it["streak"] == 1],
+    }
+    # 各阶梯按成交额或主力资金降序
+    for k in tiers:
+        tiers[k].sort(key=lambda x: (x["streak"], x["main_net_yi"] or -9999), reverse=True)
+
+    # 晋级率统计（若有昨日历史）
+    promotions = {}
+    if dates:
+        y_date = dates[0]
+        y_limits = conn.execute(
+            "SELECT code FROM history WHERE trade_date = ? AND limit_up = 1 AND name NOT LIKE '%ST%'",
+            (y_date,)
+        ).fetchall()
+        y_codes = {r["code"] for r in y_limits}
+        if y_codes:
+            # 昨日涨停在今日晋级成二板及以上的数量
+            promoted_cnt = sum(1 for it in ladder_items if it["code"] in y_codes and it["streak"] >= 2)
+            promotions["yesterday_limits"] = len(y_codes)
+            promotions["promoted_today"] = promoted_cnt
+            promotions["promotion_rate"] = round(promoted_cnt / len(y_codes) * 100, 1)
+
+    # 最强行业板块
+    ind_counter = defaultdict(int)
+    for it in ladder_items:
+        ind_counter[it["industry"]] += 1
+    hot_industries = sorted(
+        [{"industry": k, "count": v} for k, v in ind_counter.items()],
+        key=lambda x: x["count"], reverse=True
+    )[:6]
+
+    total_up = len(ladder_items)
+    total_broken = len(broken_items)
+    broken_rate = round(total_broken / (total_up + total_broken) * 100, 1) if (total_up + total_broken) > 0 else 0.0
+    max_streak = max((it["streak"] for it in ladder_items), default=0)
+
+    return {
+        "summary": {
+            "total_limit_up": total_up,
+            "total_broken": total_broken,
+            "broken_rate": broken_rate,
+            "max_streak": max_streak,
+            "promotions": promotions,
+            "hot_industries": hot_industries,
+        },
+        "tiers": tiers,
+        "broken": broken_items[:30],
+    }
+

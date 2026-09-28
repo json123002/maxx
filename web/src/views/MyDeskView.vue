@@ -738,6 +738,32 @@ watch(selected, (code) => {
   userPick = false;
 });
 
+/* ---------- 键盘极速操作流 ---------- */
+function onGlobalKeydown(e) {
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || e.target.isContentEditable) return;
+  if (!rows.value || !rows.value.length) return;
+
+  if (e.key === "ArrowDown" || e.key === "j") {
+    e.preventDefault();
+    const curIdx = rows.value.findIndex((r) => r.f12 === selected.value);
+    const nextIdx = curIdx < rows.value.length - 1 ? curIdx + 1 : 0;
+    pick(rows.value[nextIdx].f12);
+  } else if (e.key === "ArrowUp" || e.key === "k") {
+    e.preventDefault();
+    const curIdx = rows.value.findIndex((r) => r.f12 === selected.value);
+    const prevIdx = curIdx > 0 ? curIdx - 1 : rows.value.length - 1;
+    pick(rows.value[prevIdx].f12);
+  } else if (e.code === "Space") {
+    e.preventDefault();
+    if (selected.value) openAnalysis(selected.value);
+  } else if (e.key === "Enter") {
+    if (selected.value) {
+      window.open('/stock/' + selected.value, '_blank');
+    }
+  }
+}
+
 /* ---------- 生命周期 ---------- */
 let timer = null;
 
@@ -772,12 +798,14 @@ onMounted(async () => {
   }, 30_000);
   document.addEventListener("click", onDocClick);
   document.addEventListener("contextmenu", onDocCtx);
+  window.addEventListener("keydown", onGlobalKeydown);
 });
 onBeforeUnmount(() => {
   clearInterval(timer);
   clearTimeout(searchTimer);
   document.removeEventListener("click", onDocClick);
   document.removeEventListener("contextmenu", onDocCtx);
+  window.removeEventListener("keydown", onGlobalKeydown);
 });
 </script>
 
@@ -787,6 +815,7 @@ onBeforeUnmount(() => {
     <aside class="rail">
       <div class="railHead">
         <span class="railTitle">我的工作台<span class="railCnt">{{ rows.length }}</span></span>
+        <span class="kbdHint" title="键盘快捷操作: 方向键切股, 空格战法分析, 回车新窗口查看详情">⌨️ ↑/↓ · 空格分析</span>
         <span class="railOps">
           <button class="railOpBtn" title="从自选导入" :disabled="importing" @click="doImport">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -1440,6 +1469,11 @@ onBeforeUnmount(() => {
   margin-left: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--dim);
   border: 1px solid var(--line); border-radius: 999px; padding: 0 7px;
   font-weight: 400; vertical-align: 1px;
+}
+.kbdHint {
+  font-size: 10.5px; color: var(--dim); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px;
+  cursor: help;
 }
 .railOps { display: inline-flex; gap: 4px; }
 .railOpBtn {

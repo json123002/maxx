@@ -17,7 +17,7 @@ import {
 } from "./metrics";
 
 export const LOAD_STEP = 60;   // 手机端每次加载条数
-export const RENDER_CAP = 500; // 桌面表格渲染上限
+export const RENDER_CAP = 2000; // 桌面表格渲染上限（提升至 2000 条，减少截断）
 export const IS_MOBILE = () => window.matchMedia("(max-width: 768px)").matches;
 
 // 基础排序项(手机端排序 chips;自定义指标会动态追加)

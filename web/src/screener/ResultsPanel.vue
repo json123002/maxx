@@ -133,6 +133,30 @@ const emptyHtml = computed(() =>
     : "设置条件后点【一键查询】<br>数据来自东方财富，仅作客观筛选，不构成投资建议"
 );
 
+// 键盘极速操作流
+const activeRowIdx = ref(0);
+
+function onTableKeydown(e) {
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || e.target.isContentEditable) return;
+  if (tab.value !== "stock" || !tableRows.value.length) return;
+
+  if (e.key === "ArrowDown" || e.key === "j") {
+    e.preventDefault();
+    activeRowIdx.value = Math.min(tableRows.value.length - 1, activeRowIdx.value + 1);
+  } else if (e.key === "ArrowUp" || e.key === "k") {
+    e.preventDefault();
+    activeRowIdx.value = Math.max(0, activeRowIdx.value - 1);
+  } else if (e.code === "Space") {
+    e.preventDefault();
+    const cur = tableRows.value[activeRowIdx.value];
+    if (cur) emit("analysis", cur.f12);
+  } else if (e.key === "Enter") {
+    const cur = tableRows.value[activeRowIdx.value];
+    if (cur) window.open('/stock/' + cur.f12, '_blank');
+  }
+}
+
 // 无限滚动:接近底部自动加载(仅手机端可见)
 const moreBtn = ref(null);
 let observer = null;
@@ -143,8 +167,12 @@ onMounted(() => {
     }, { rootMargin: "300px" });
     observer.observe(moreBtn.value);
   }
+  window.addEventListener("keydown", onTableKeydown);
 });
-onUnmounted(() => observer && observer.disconnect());
+onUnmounted(() => {
+  if (observer) observer.disconnect();
+  window.removeEventListener("keydown", onTableKeydown);
+});
 </script>
 
 <template>
@@ -163,7 +191,7 @@ onUnmounted(() => observer && observer.disconnect());
           <button class="hideUndo" @click="restoreHidden">恢复</button>
         </span>
         <span class="metaSpacer"></span>
-        <span class="hint">点击列头排序 · 点击行业标签快速筛选</span>
+        <span class="hint">⌨️ ↑/↓ 换股 · 空格 分析 · 回车 详情</span>
         <span id="srcBadgeM" class="srcBadge" :class="{ rt: srcBadge.rt }">{{ srcBadge.text }}</span>
         <button class="ghost" id="csvBtn" v-show="allRows.length" @click="exportCSV">导出 CSV</button>
       </div>
@@ -185,7 +213,7 @@ onUnmounted(() => observer && observer.disconnect());
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in tableRows" :key="r.f12">
+          <tr v-for="(r, idx) in tableRows" :key="r.f12" :class="{ kbdActiveRow: idx === activeRowIdx }" @click="activeRowIdx = idx">
             <td>
               <button class="starBtn" :class="{ on: inWatch(r.f12) }"
                       :title="inWatch(r.f12) ? '移除自选' : '添加自选'" @click="onStar(r)">
@@ -295,6 +323,10 @@ onUnmounted(() => observer && observer.disconnect());
 
 <style scoped>
 /* ===== 行操作:⋯ 菜单按钮(默认淡,悬停行时显现) ===== */
+.kbdActiveRow td {
+  background: var(--hover) !important;
+  border-bottom-color: var(--accent) !important;
+}
 .actCell { white-space: nowrap; }
 .moreBtn {
   margin-left: 6px; width: 24px; height: 24px; border: none; border-radius: 6px;
