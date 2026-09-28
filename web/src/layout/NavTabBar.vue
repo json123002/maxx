@@ -45,6 +45,9 @@
               <ReloadOutlined /> 刷新当前页
             </a-menu-item>
             <a-menu-divider />
+            <a-menu-item key="close-right" @click="onCloseRight">
+              <VerticalRightOutlined /> 关闭右侧标签
+            </a-menu-item>
             <a-menu-item key="close-others" @click="onCloseOthers">
               <CloseOutlined /> 关闭其他标签
             </a-menu-item>
@@ -69,11 +72,14 @@
       <div v-if="contextMenu.tab?.closable" class="ctxItem" @click="onContextCloseCurrent">
         <CloseOutlined /> 关闭本页
       </div>
+      <div v-if="canCloseRight(contextMenu.tab)" class="ctxItem" @click="onContextCloseRight">
+        <VerticalRightOutlined /> 关闭右侧
+      </div>
       <div class="ctxItem" @click="onContextCloseOthers">
-        关闭其他
+        <CloseOutlined /> 关闭其他
       </div>
       <div class="ctxItem" @click="onContextCloseAll">
-        关闭所有
+        <StopOutlined /> 关闭所有
       </div>
     </div>
   </nav>
@@ -97,8 +103,9 @@ import {
   CloseOutlined,
   StopOutlined,
   CrownOutlined,
+  VerticalRightOutlined,
 } from "@ant-design/icons-vue";
-import { tabState, removeTab, closeOthers, closeAll } from "../stores/tabs";
+import { tabState, removeTab, closeOthers, closeRight, closeAll } from "../stores/tabs";
 
 const router = useRouter();
 const tabsContainer = ref(null);
@@ -134,8 +141,18 @@ function onCloseOthers() {
   closeOthers(tabState.activeKey);
 }
 
+function onCloseRight() {
+  closeRight(tabState.activeKey);
+}
+
 function onCloseAll() {
   closeAll();
+}
+
+function canCloseRight(tab) {
+  if (!tab) return false;
+  const idx = tabState.tabs.findIndex((t) => t.fullPath === tab.fullPath || t.path === tab.path);
+  return idx >= 0 && idx < tabState.tabs.length - 1;
 }
 
 function onReloadCurrent() {
@@ -200,6 +217,13 @@ function onContextReload() {
 function onContextCloseCurrent() {
   if (contextMenu.tab?.closable) {
     removeTab(contextMenu.tab.fullPath);
+  }
+  closeContextMenu();
+}
+
+function onContextCloseRight() {
+  if (contextMenu.tab) {
+    closeRight(contextMenu.tab.fullPath);
   }
   closeContextMenu();
 }

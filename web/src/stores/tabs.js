@@ -31,16 +31,39 @@ const DEFAULT_TAB = {
   closable: false,
 };
 
+function normalizePath(p) {
+  if (!p || p === "/" || p === "") return "/home";
+  return p;
+}
+
 function loadStoredTabs() {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // 保证 /home 始终存在且不可关闭
-        const hasHome = parsed.some((t) => t.path === "/home");
-        const list = hasHome ? parsed : [DEFAULT_TAB, ...parsed];
-        return list.map((t) => ({ ...t, closable: t.path !== "/home" }));
+        // 严格去重：剔除任何重复的 /home 或 / 标签，确保总览唯一且置顶
+        const unique = [];
+        const seen = new Set();
+        for (const t of parsed) {
+          const normPath = normalizePath(t.path);
+          const normKey = normPath === "/home" ? "/home" : (t.fullPath || normPath);
+          if (!seen.has(normKey)) {
+            seen.add(normKey);
+            unique.push({
+              ...t,
+              key: normKey,
+              path: normPath,
+              fullPath: normKey,
+              title: normPath === "/home" ? "总览" : (t.title || "标签页"),
+              closable: normPath !== "/home",
+            });
+          }
+        }
+        if (!seen.has("/home")) {
+          unique.unshift({ ...DEFAULT_TAB });
+        }
+        return unique;
       }
     }
   } catch (e) {}
@@ -50,7 +73,7 @@ function loadStoredTabs() {
 export const tabState = reactive({
   tabs: loadStoredTabs(),
   activeKey: "/home",
-  cachedViews: ["HomeView", "ScreenerView", "RadarView", "CapitalFlowView"],
+  cachedViews: ["HomeView", "ScreenerView", "RadarView", "SectorStrengthView", "CapitalFlowView"],
 });
 
 function syncStorage() {
@@ -77,20 +100,25 @@ export function addTab(route) {
     return { isNew: false };
   }
 
-  const fullPath = route.fullPath;
-  const path = route.path;
+  const path = normalizePath(route.path);
+  const fullPath = path === "/home" ? "/home" : route.fullPath;
   const compName = getComponentName(path);
 
   // 标题判定
-  let title = route.meta?.title || "标签页";
+  let title = path === "/home" ? "总览" : (route.meta?.title || "标签页");
   if (path.startsWith("/stock/")) {
     const code = route.params?.code || path.split("/").pop();
     title = `个股 ${code}`;
   }
 
-  const existingIndex = tabState.tabs.findIndex((t) => t.fullPath === fullPath);
+  // 严格按规范化后的路径查重（确保 /home 永远唯一）
+  const existingIndex = tabState.tabs.findIndex((t) => {
+    if (path === "/home") return t.path === "/home" || t.fullPath === "/home" || t.path === "/";
+    return t.fullPath === fullPath;
+  });
+
   if (existingIndex >= 0) {
-    tabState.activeKey = fullPath;
+    tabState.activeKey = tabState.tabs[existingIndex].fullPath;
     if (compName && !tabState.cachedViews.includes(compName)) {
       tabState.cachedViews.push(compName);
     }
@@ -157,14 +185,15 @@ export function closeOthers(key) {
  * 关闭右侧标签页
  */
 export function closeRight(key) {
-  const index = tabState.tabs.findIndex((t) => t.fullPath === key);
+  const normKey = normalizePath(key);
+  const index = tabState.tabs.findIndex((t) => t.fullPath === normKey || t.path === normKey || t.fullPath === key);
   if (index === -1) return;
   const remaining = tabState.tabs.slice(0, index + 1);
-  // 保留 home 如果之前有
   tabState.tabs = remaining;
   if (!tabState.tabs.some((t) => t.fullPath === tabState.activeKey)) {
-    tabState.activeKey = key;
-    router.push(key);
+    const fallback = tabState.tabs[index] || tabState.tabs[0];
+    tabState.activeKey = fallback.fullPath;
+    router.push(fallback.fullPath);
   }
   updateCachedViews();
   syncStorage();
