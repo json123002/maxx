@@ -73,8 +73,15 @@
         </a-dropdown>
       </a-layout-header>
 
+      <!-- 多标签页导航条 -->
+      <NavTabBar />
+
       <a-layout-content class="appContent">
-        <router-view />
+        <router-view v-slot="{ Component, route: curRoute }">
+          <keep-alive :include="tabState.cachedViews">
+            <component :is="Component" :key="curRoute.fullPath" />
+          </keep-alive>
+        </router-view>
       </a-layout-content>
     </a-layout>
 
@@ -114,6 +121,8 @@ import { api } from "../api/client";
 import { quoteSource, loadQuoteSource, activePersonalSource } from "../stores/quotesource";
 import { themeMode, toggleTheme } from "../utils/theme";
 import PwdModal from "./PwdModal.vue";
+import NavTabBar from "./NavTabBar.vue";
+import { tabState } from "../stores/tabs";
 
 const route = useRoute();
 const router = useRouter();
@@ -287,11 +296,11 @@ export default { components: { SunIcon, MoonIcon } };
 .mainSide { min-width: 0; }
 .appContent {
   display: flex; flex-direction: column;
-  height: calc(100vh - 60px);
+  height: calc(100vh - 98px);
   overflow: auto;
   padding: 16px 24px 20px;
 }
 @media (max-width: 768px) {
-  .appContent { height: auto; min-height: calc(100vh - 60px); padding: 12px 12px calc(24px + env(safe-area-inset-bottom)); }
+  .appContent { height: auto; min-height: calc(100vh - 98px); padding: 12px 12px calc(24px + env(safe-area-inset-bottom)); }
 }
 </style>

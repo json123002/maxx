@@ -14,6 +14,7 @@ import AnalysisModal from "../analysis/AnalysisModal.vue";
 import KChart from "../stock/KChart.vue";
 import MinuteChart from "../stock/MinuteChart.vue";
 import { activePersonalSource, loadQuoteSource } from "../stores/quotesource";
+import { updateTabTitle } from "../stores/tabs";
 
 const route = useRoute();
 const router = useRouter();
@@ -69,6 +70,9 @@ onMounted(async () => {
   try {
     const d = await api("/api/quote/stock/" + code);
     quote.value = d.row;
+    if (d.row?.f14) {
+      updateTabTitle(route.fullPath, `${code} ${d.row.f14}`);
+    }
     track("stock_view", code + " " + (d.row.f14 || ""));
   } catch (err) {
     if (err.message === "unauthorized") return;

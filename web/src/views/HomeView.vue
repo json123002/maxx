@@ -146,18 +146,18 @@ import { authState } from "../stores/auth";
 import { fmtN, cls, quoteUrl } from "../utils/format";
 import { version } from "../../package.json";
 
-// 功能入口:与登录页转盘同一套选题,后续功能上线时补上 path 即可
+// 功能入口:客观量化工具矩阵，严守不荐股底线
 const features = [
   { title: "换手率筛选", icon: FundViewOutlined, path: "/screener",
-    desc: "按换手率/涨跌幅/行业/自定义指标统计全市场个股活跃度。" },
+    desc: "按换手率/涨跌幅/行业/量比等多维量化指标客观统计全市场个股活跃度。" },
   { title: "涨停雷达", icon: FireOutlined, path: "/radar",
-    desc: "一进二打板候选:昨日首板 × 今日竞价/量能/资金六维粗筛。" },
-  { title: "板块强度", icon: CrownOutlined, path: "",
-    desc: "按板块强度梳理领涨个股,仅作形态统计。" },
-  { title: "资金流向", icon: FundOutlined, path: "",
-    desc: "资金流向的客观展示,供盘中观察与研究。" },
+    desc: "连板天梯梯队复盘 × 一进二候选：客观六维粗筛，纯作盘面观察统计。" },
+  { title: "板块强度", icon: CrownOutlined, path: "/flow?mode=industry",
+    desc: "全市场行业主力资金净额排行与分时曲线，客观呈现领涨赛道分布。" },
+  { title: "资金流向", icon: FundOutlined, path: "/flow",
+    desc: "概念与行业分时主力资金净额、5分钟异动与资金广度分布统计。" },
   { title: "趋势统计", icon: RocketOutlined, path: "",
-    desc: "趋势形态的统计与复盘,不构成收益预期。" },
+    desc: "全市场均线多空结构与形态阶段宏观统计，仅作环境参考，不荐股。" },
 ];
 
 // ===== 刊头:日期 / 星期 / 分时段问候 =====

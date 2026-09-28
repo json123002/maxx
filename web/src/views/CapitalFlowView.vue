@@ -4,6 +4,7 @@
    流入流出排行、白名单独立追踪。数据直连东方财富延迟行情（JSONP），
    偏好存 localStorage、快照历史存 sessionStorage。埋点 flow_view。 */
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useRoute } from "vue-router";
 import { message } from "ant-design-vue";
 import FlowChart from "../flow/FlowChart.vue";
 import {
@@ -13,11 +14,13 @@ import {
 import { track } from "../api/client";
 import { quoteSource, loadQuoteSource, activePersonalSource } from "../stores/quotesource";
 
+const route = useRoute();
+
 const PREFS_KEY = "flow_prefs_v1";
 const HISTORY_KEY = "flow_history_v1";
 
 /* ===== 状态 ===== */
-const industry = ref(false);        // false=概念板块 true=行业板块
+const industry = ref(route.query.mode === "industry");        // false=概念板块 true=行业板块
 const topN = ref(8);
 const intervalSec = ref(300);
 const autoRefresh = ref(true);
@@ -45,7 +48,13 @@ const settingsBtn = ref(null);
 function loadPrefs() {
   try {
     const s = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
-    industry.value = !!s.industry;
+    if (route.query.mode === "industry") {
+      industry.value = true;
+    } else if (route.query.mode === "concept") {
+      industry.value = false;
+    } else {
+      industry.value = !!s.industry;
+    }
     topN.value = [6, 8, 10, 12].includes(Number(s.topN)) ? Number(s.topN) : 8;
     intervalSec.value = [300, 600, 900].includes(Number(s.intervalSec)) ? Number(s.intervalSec) : 300;
     autoRefresh.value = s.autoRefresh !== false;

@@ -828,12 +828,21 @@ def test_desk_op_logs(client):
     r = client.get("/api/logs", headers=hr,
                    params={"action": "change_password"}).json()
     assert any(x["username"] == "admin" for x in r["rows"])
-    # 工作台新埋点动作已在白名单内
+    # 工作台与雷达天梯、偏好设置新埋点动作已在白名单内
     assert client.post("/api/track", headers=ha,
                        json={"action": "desk_view", "detail": "3 只"}
                        ).status_code == 200
     assert client.post("/api/track", headers=ha,
                        json={"action": "f10_view", "detail": "600001 测试钢铁"}
+                       ).status_code == 200
+    assert client.post("/api/track", headers=ha,
+                       json={"action": "ladder_view", "detail": "2026-09-25 涨停:25 最高:4板"}
+                       ).status_code == 200
+    assert client.post("/api/track", headers=ha,
+                       json={"action": "setting_change", "detail": "副图指标: MACD"}
+                       ).status_code == 200
+    assert client.post("/api/track", headers=ha,
+                       json={"action": "setting_modal_open", "detail": "qsource"}
                        ).status_code == 200
 
 

@@ -50,12 +50,20 @@ router.beforeEach(async (to) => {
   return true;
 });
 
+import { addTab } from "../stores/tabs";
+
 // 页面打开埋点：仅登录后访问非公开页时上报（fire-and-forget，失败静默）。
+// 结合多标签页：仅在全新打开标签页或首次载入时上报；在已打开的标签间切换属纯前端视图呈现，
+// 不重复触发上报，严格保证操作日志精确、真实、不被滥刷。
 // 带 pageTrack:false 的页面(工作台/雷达/资金流/历史/个股)有各自的 *_view
 // 专属埋点且附带详情,跳过通用 page_view 避免一次打开记两条。
+let isInitial = true;
 router.afterEach((to) => {
-  if (!to.meta.public && to.meta.pageTrack !== false && getToken())
+  const { isNew } = addTab(to);
+  if ((isNew || isInitial) && !to.meta.public && to.meta.pageTrack !== false && getToken()) {
     track("page_view", to.meta.title || to.path);
+  }
+  isInitial = false;
 });
 
 export default router;

@@ -86,11 +86,18 @@ async function loadLadder() {
   try {
     const d = await api("/api/radar/ladder");
     ladderData.value = d;
+    track("ladder_view", (d.date || "") + " 涨停:" + (d.summary?.total_limit_up || 0) + " 最高:" + (d.summary?.max_streak || 0) + "板");
   } catch (err) {
     if (err.message !== "unauthorized") message.error(err.message || "天梯数据加载失败");
   } finally {
     ladderLoading.value = false;
   }
+}
+
+function switchTab(t) {
+  if (activeTab.value === t) return;
+  activeTab.value = t;
+  track(t === "ladder" ? "ladder_view" : "radar_view", "切换标签: " + (t === "ladder" ? "连板天梯" : "一进二雷达"));
 }
 
 async function refreshActive() {
@@ -113,10 +120,10 @@ onMounted(() => {
       <div class="secHead">
         <span class="secName">涨停雷达 · 操盘复盘</span>
         <div class="tabNav">
-          <button class="navTab" :class="{ act: activeTab === 'ladder' }" @click="activeTab = 'ladder'">
+          <button class="navTab" :class="{ act: activeTab === 'ladder' }" @click="switchTab('ladder')">
             连板天梯 & 情绪
           </button>
-          <button class="navTab" :class="{ act: activeTab === '1to2' }" @click="activeTab = '1to2'">
+          <button class="navTab" :class="{ act: activeTab === '1to2' }" @click="switchTab('1to2')">
             一进二量化雷达
           </button>
         </div>

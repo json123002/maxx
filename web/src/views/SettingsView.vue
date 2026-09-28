@@ -27,7 +27,7 @@ import {
   SearchOutlined,
 } from "@ant-design/icons-vue";
 
-import { api } from "../api/client";
+import { api, track } from "../api/client";
 import { blackState, removeBlack } from "../stores/blacklist";
 import { authState, logout } from "../stores/auth";
 import { themeMode, toggleTheme } from "../utils/theme";
@@ -50,6 +50,7 @@ function openModal(type) {
   else if (type === "blacklist") blackModalOpen.value = true;
   else if (type === "hotkeys") hotkeysModalOpen.value = true;
   else if (type === "security") pwdOpen.value = true;
+  track("setting_modal_open", type);
 }
 
 // 监听 URL 快速唤起
@@ -83,6 +84,7 @@ const currentSubInd = ref(localStorage.getItem("default_sub_indicator") || "VOL"
 function setSubInd(val) {
   currentSubInd.value = val;
   localStorage.setItem("default_sub_indicator", val);
+  track("setting_change", "副图指标: " + val);
   message.success(`已设置默认副图指标为 ${val}`);
 }
 
@@ -91,6 +93,7 @@ const currentRenderCap = ref(Number(localStorage.getItem("screener_render_cap") 
 function setRenderCap(val) {
   currentRenderCap.value = val;
   localStorage.setItem("screener_render_cap", String(val));
+  track("setting_change", "表格容量: " + val);
   message.success(`已更新筛选表格渲染上限为 ${val} 只`);
 }
 
@@ -98,6 +101,7 @@ function setRenderCap(val) {
 function switchTheme(target) {
   if (themeMode.value !== target) {
     toggleTheme();
+    track("setting_change", "外观主题: " + target);
     message.success(`已切换为${target === "dark" ? "深色暗黑" : "清爽明亮"}模式`);
   }
 }
