@@ -7,6 +7,7 @@ const COMPONENT_NAME_MAP = {
   "/home": "HomeView",
   "/screener": "ScreenerView",
   "/radar": "RadarView",
+  "/sector": "SectorStrengthView",
   "/flow": "CapitalFlowView",
   "/watchlist": "WatchlistView",
   "/desk": "MyDeskView",

@@ -211,6 +211,62 @@ def quote_meta(markets: str | None = Query(default=None),
     }
 
 
+@router.get("/api/quote/sector-strength")
+def quote_sector_strength(user=Depends(current_user)):
+    """全市场行业板块强度统计：客观聚合各行业涨跌幅、赚钱效应广度、涨停家数与领涨龙头。"""
+    conn = get_conn()
+    query = """
+    WITH TopStock AS (
+      SELECT industry, code, name, f3,
+             ROW_NUMBER() OVER (PARTITION BY industry ORDER BY f3 DESC) as rn
+      FROM latest
+      WHERE f2 IS NOT NULL AND industry IS NOT NULL AND industry != '' AND industry != '-'
+    ),
+    Agg AS (
+      SELECT 
+        industry,
+        COUNT(*) as total,
+        SUM(CASE WHEN f3 > 0 THEN 1 ELSE 0 END) as up_cnt,
+        SUM(CASE WHEN f3 < 0 THEN 1 ELSE 0 END) as down_cnt,
+        SUM(CASE WHEN limit_up = 1 AND name NOT LIKE '%ST%' THEN 1 ELSE 0 END) as limit_up_cnt,
+        ROUND(AVG(f3), 2) as avg_chg,
+        ROUND(SUM(f6) / 100000000.0, 2) as amt_yi,
+        ROUND(AVG(f8), 2) as avg_tov
+      FROM latest
+      WHERE industry IS NOT NULL AND industry != '' AND industry != '-' AND f2 IS NOT NULL
+      GROUP BY industry
+    )
+    SELECT 
+      a.industry, a.total, a.up_cnt, a.down_cnt,
+      (a.total - a.up_cnt - a.down_cnt) as flat_cnt,
+      a.limit_up_cnt, a.avg_chg, a.amt_yi, a.avg_tov,
+      t.code as top_code, t.name as top_name, t.f3 as top_chg
+    FROM Agg a
+    LEFT JOIN TopStock t ON a.industry = t.industry AND t.rn = 1
+    ORDER BY a.avg_chg DESC
+    """
+    rows = conn.execute(query).fetchall()
+    meta = _snapshot_meta()
+    
+    total_sectors = len(rows)
+    up_sectors = sum(1 for r in rows if (r["avg_chg"] or 0) > 0)
+    down_sectors = sum(1 for r in rows if (r["avg_chg"] or 0) < 0)
+    
+    return {
+        "fetched_at": meta["fetched_at"],
+        "source": meta["source"],
+        "summary": {
+            "total_sectors": total_sectors,
+            "up_sectors": up_sectors,
+            "down_sectors": down_sectors,
+            "flat_sectors": total_sectors - up_sectors - down_sectors,
+            "top_sector": rows[0]["industry"] if rows else "",
+            "top_gain": rows[0]["avg_chg"] if rows else 0,
+        },
+        "rows": [dict(r) for r in rows],
+    }
+
+
 @router.get("/api/quote/stock/{code}")
 def quote_stock(code: str, user=Depends(current_user)):
     """单股最新快照（个股详情页用）。"""

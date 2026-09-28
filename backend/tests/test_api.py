@@ -518,6 +518,18 @@ def test_enrich_regions_pconline(client, monkeypatch):
     assert rows2[0]["region"] == "上海市 · 电信" and not calls
 
 
+def test_sector_strength(client):
+    """板块强度接口：未登录 401；登录后返回 rows 及 summary。"""
+    assert client.get("/api/quote/sector-strength").status_code == 401
+    ha = login(client, "admin", "admin123")
+    r = client.get("/api/quote/sector-strength", headers=ha)
+    assert r.status_code == 200
+    d = r.json()
+    assert "summary" in d
+    assert "rows" in d
+    assert isinstance(d["rows"], list)
+
+
 # ===== 登录防爆破限流 =====
 def test_login_rate_limit(client):
     # 用独立 IP + 独立用户名，不影响套件里 admin 的正常登录

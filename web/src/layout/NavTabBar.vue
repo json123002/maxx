@@ -96,6 +96,7 @@ import {
   ReloadOutlined,
   CloseOutlined,
   StopOutlined,
+  CrownOutlined,
 } from "@ant-design/icons-vue";
 import { tabState, removeTab, closeOthers, closeAll } from "../stores/tabs";
 
@@ -106,6 +107,7 @@ function getTabIcon(path) {
   if (path === "/home") return DashboardOutlined;
   if (path === "/screener") return FundViewOutlined;
   if (path === "/radar") return FireOutlined;
+  if (path === "/sector") return CrownOutlined;
   if (path === "/flow") return RadarChartOutlined;
   if (path === "/watchlist") return StarOutlined;
   if (path === "/desk") return FundViewOutlined;
