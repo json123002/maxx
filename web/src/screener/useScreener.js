@@ -17,7 +17,8 @@ import {
 } from "./metrics";
 
 export const LOAD_STEP = 60;   // 手机端每次加载条数
-export const RENDER_CAP = 2000; // 桌面表格渲染上限（提升至 2000 条，减少截断）
+export const getRenderCap = () => Number(localStorage.getItem("screener_render_cap") || 2000);
+export const RENDER_CAP = 2000; // 默认表格渲染上限（提升至 2000 条，减少截断）
 export const IS_MOBILE = () => window.matchMedia("(max-width: 768px)").matches;
 
 // 基础排序项(手机端排序 chips;自定义指标会动态追加)
@@ -415,7 +416,7 @@ export function useScreener() {
   // ===== 渲染数据(服务端已完成过滤,本地仅排序;"本次隐藏"的行本地剔除)=====
   const visibleRows = computed(() => allRows.value.filter((r) => !hidden.value.has(r.f12)));
   const sortedRows = computed(() => visibleRows.value.slice().sort(cmpRows(sortKey.value, sortDir.value)));
-  const tableRows = computed(() => sortedRows.value.slice(0, RENDER_CAP)); // 桌面表格渲染上限
+  const tableRows = computed(() => sortedRows.value.slice(0, getRenderCap())); // 桌面表格渲染上限
   const cardRows = computed(() => sortedRows.value.slice(0, shown.value)); // 手机卡片分页
   const hasMore = computed(() => sortedRows.value.length > shown.value);
 
@@ -446,7 +447,8 @@ export function useScreener() {
   const capNote = computed(() => {
     if (lastTotal.value > allRows.value.length)
       return { show: true, text: "结果超过返回上限，仅显示前 " + allRows.value.length + " 条，请收窄条件" };
-    return { show: visibleRows.value.length > RENDER_CAP, text: "表格仅渲染前 500 行，导出 CSV 含全部结果" };
+    const cap = getRenderCap();
+    return { show: visibleRows.value.length > cap, text: "表格仅渲染前 " + cap + " 行，导出 CSV 含全部结果" };
   });
 
   function loadMore() { shown.value += LOAD_STEP; }

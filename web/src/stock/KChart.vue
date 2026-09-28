@@ -14,7 +14,7 @@ const props = defineProps({
   loading: { type: Boolean, default: false }, // 取数中:空态显示加载动画而非"加载失败"
 });
 
-const subIndicator = ref("VOL"); // VOL | MACD | KDJ
+const subIndicator = ref(localStorage.getItem("default_sub_indicator") || "VOL"); // VOL | MACD | KDJ
 function setSubInd(ind) {
   subIndicator.value = ind;
   draw();
