@@ -1019,9 +1019,9 @@ const VISUAL_TEMPLATES = [
 <h2 class="visH2">操盘计划</h2>
 <ul>
   <li><b>介入条件：</b>突破阻力位 / 回踩均线企稳确认</li>
-  <li><b>目标价格：</b>第一目标 0.00 元（盈亏比 ≥ 3:1）</li>
-  <li><b>止损防守：</b>跌破支撑 0.00 元果断执行</li>
-  <li><b>仓位控制：</b>单票风险敞口控制在 10%</li>
+  <li><b>目标价格：</b>第一目标位&nbsp;</li>
+  <li><b>止损防守：</b>跌破关键支撑&nbsp;</li>
+  <li><b>仓位控制：</b>单票风险敞口&nbsp;</li>
 </ul>
 <p><br></p>
 `,
@@ -1058,7 +1058,7 @@ const VISUAL_TEMPLATES = [
 <h2 class="visH2">止损与风险预案</h2>
 <blockquote class="visCallout warn"><b>防守纪律：</b>触及防守价位果断离场，严控最大回撤。</blockquote>
 <ul>
-  <li><b>防守价位：</b>跌破 0.00 元（最大容忍回撤 5%）</li>
+  <li><b>防守价位：</b>跌破关键防守位&nbsp;</li>
   <li><b>执行动作：</b>破位不侥幸扛单，坚决执行纪律离场</li>
 </ul>
 <p><br></p>
@@ -2881,5 +2881,111 @@ onBeforeUnmount(() => {
   .kvGrid { grid-template-columns: 1fr 1fr; }
   .kv2.wide { grid-column: span 2; }
   .heroPrice b { font-size: 24px; }
+}
+</style>
+
+<style>
+/* ===== 操盘笔记动态富文本内容样式 (严格锁定紧凑小字号，避免动态标签被浏览器默认样式放大) ===== */
+.visCanvas {
+  font-size: 12px !important;
+  font-family: inherit !important;
+}
+.visCanvas h2,
+.visCanvas .visH2 {
+  font-size: 12.5px !important;
+  font-weight: 650 !important;
+  color: var(--txt) !important;
+  margin: 8px 0 4px !important;
+  padding: 0 0 0 7px !important;
+  border-left: 2.5px solid var(--accent) !important;
+  border-bottom: none !important;
+  line-height: 1.4 !important;
+}
+.visCanvas h3,
+.visCanvas .visH3 {
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  color: var(--txt) !important;
+  margin: 6px 0 3px !important;
+  padding: 0 0 0 6px !important;
+  border-left: 2px solid var(--line-strong) !important;
+  border-bottom: none !important;
+  line-height: 1.4 !important;
+}
+.visCanvas p {
+  margin: 3px 0 !important;
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+}
+.visCanvas ul,
+.visCanvas ol {
+  margin: 3px 0 !important;
+  padding-left: 18px !important;
+}
+.visCanvas li {
+  margin: 2px 0 !important;
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+}
+.visCanvas blockquote,
+.visCanvas .visCallout {
+  margin: 6px 0 !important;
+  padding: 5px 10px !important;
+  border-left: 2.5px solid var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel)) !important;
+  border-radius: 0 5px 5px 0 !important;
+  color: var(--txt) !important;
+  font-size: 11.5px !important;
+  line-height: 1.55 !important;
+}
+.visCanvas .visCallout.warn {
+  border-left-color: var(--hot) !important;
+  background: color-mix(in srgb, var(--hot) 6%, var(--panel)) !important;
+}
+.visCanvas .visTodo {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  margin: 3px 0 !important;
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+}
+.visCanvas .visTodo input[type="checkbox"] {
+  width: 12px !important;
+  height: 12px !important;
+  cursor: pointer !important;
+  accent-color: var(--accent) !important;
+  flex-shrink: 0 !important;
+  user-select: none !important;
+}
+.visCanvas .visTodo.isDone span {
+  text-decoration: line-through !important;
+  color: var(--dim) !important;
+  opacity: 0.65 !important;
+}
+.visCanvas .visTag {
+  display: inline-flex !important;
+  align-items: center !important;
+  font-size: 10.5px !important;
+  font-weight: 550 !important;
+  padding: 0 5px !important;
+  border-radius: 3px !important;
+  margin: 0 2px !important;
+  vertical-align: 1px !important;
+  user-select: none !important;
+}
+.visCanvas .visPriceBadge {
+  display: inline-flex !important;
+  align-items: center !important;
+  font-family: var(--mono) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  padding: 0 5px !important;
+  border-radius: 3px !important;
+  margin: 0 2px !important;
+  vertical-align: 1px !important;
+  border: 1px solid var(--line) !important;
+  background: var(--panel) !important;
+  user-select: none !important;
 }
 </style>
