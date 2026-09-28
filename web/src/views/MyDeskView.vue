@@ -882,9 +882,18 @@ function onCanvasInput() {
   }
   noteDirty.value = true;
   if (noteTimer) clearTimeout(noteTimer);
+  // 防抖延长至 3.5 秒：给交易员充足连贯的思考与编辑时间，绝不频繁打断手头操作
   noteTimer = setTimeout(() => {
     flushSaveNote(true);
-  }, 1200);
+  }, 3500);
+}
+
+function onCanvasBlur() {
+  // 编辑完成后点击画布外部或切出时，若有未保存修改立即保存
+  if (noteDirty.value && !noteSaving.value) {
+    if (noteTimer) clearTimeout(noteTimer);
+    flushSaveNote(true);
+  }
 }
 
 function onCanvasClick(e) {
@@ -1841,6 +1850,7 @@ onBeforeUnmount(() => {
                   @input="onCanvasInput"
                   @click="onCanvasClick"
                   @keydown="onCanvasKeydown"
+                  @blur="onCanvasBlur"
                 ></div>
                 <div class="noteFoot">
                   <span class="noteTip">
