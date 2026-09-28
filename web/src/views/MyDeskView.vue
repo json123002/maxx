@@ -943,16 +943,30 @@ function execCmd(command, value = null) {
   onCanvasInput();
 }
 
+function collapseCaretToEnd(container) {
+  const sel = window.getSelection();
+  if (!sel) return;
+  sel.removeAllRanges();
+  const range = document.createRange();
+  if (container) {
+    range.selectNodeContents(container);
+    range.collapse(false);
+  }
+  sel.addRange(range);
+}
+
 function insertHtmlAtCursor(html) {
   if (!editorRef.value) return;
   editorRef.value.focus();
   const sel = window.getSelection();
-  if (!sel || !sel.rangeCount) {
-    editorRef.value.innerHTML += html;
-    onCanvasInput();
-    return;
+  let range;
+  if (!sel || !sel.rangeCount || !editorRef.value.contains(sel.anchorNode)) {
+    range = document.createRange();
+    range.selectNodeContents(editorRef.value);
+    range.collapse(false);
+  } else {
+    range = sel.getRangeAt(0);
   }
-  const range = sel.getRangeAt(0);
   range.deleteContents();
   const el = document.createElement("div");
   el.innerHTML = html;
@@ -962,14 +976,30 @@ function insertHtmlAtCursor(html) {
     lastNode = frag.appendChild(node);
   }
   range.insertNode(frag);
-  if (lastNode) {
-    range = range.cloneRange();
-    range.setStartAfter(lastNode);
-    range.collapse(true);
+
+  // 严格折叠光标至末尾，绝不选中任何文字（消除新增后默认全选的 BUG）
+  if (sel) {
     sel.removeAllRanges();
-    sel.addRange(range);
+    const newRange = document.createRange();
+    if (lastNode) {
+      newRange.setStartAfter(lastNode);
+    } else {
+      newRange.selectNodeContents(editorRef.value);
+    }
+    newRange.collapse(false);
+    sel.addRange(newRange);
   }
   onCanvasInput();
+}
+
+function clearNoteCanvas() {
+  if (!editorRef.value) return;
+  editorRef.value.innerHTML = "<p><br></p>";
+  onCanvasInput();
+  nextTick(() => {
+    editorRef.value.focus();
+    collapseCaretToEnd(editorRef.value);
+  });
 }
 
 function insertTodo() {
@@ -1018,7 +1048,7 @@ const VISUAL_TEMPLATES = [
     html: `
 <h2 class="visH2">操盘计划</h2>
 <ul>
-  <li><b>介入条件：</b>突破阻力位 / 回踩均线企稳确认</li>
+  <li><b>计划介入：</b>突破阻力位 / 回踩企稳确认</li>
   <li><b>目标价格：</b>第一目标位&nbsp;</li>
   <li><b>止损防守：</b>跌破关键支撑&nbsp;</li>
   <li><b>仓位控制：</b>单票风险敞口&nbsp;</li>
@@ -1045,7 +1075,7 @@ const VISUAL_TEMPLATES = [
 <h2 class="visH2">盘后复盘</h2>
 <blockquote class="visCallout"><b>走势综述：</b>全天强弱表现、主力资金参与度与盘口承接特征。</blockquote>
 <ul>
-  <li><b>量能与分时：</b>早盘放量承接与尾盘量价表现</li>
+  <li><b>量能分时：</b>早盘放量承接与尾盘量价表现</li>
   <li><b>纪律执行：</b>是否按既定计划操作，有无追高或侥幸心理</li>
   <li><b>次日预案：</b>高开/低开关键点位应对策略</li>
 </ul>
@@ -1058,7 +1088,7 @@ const VISUAL_TEMPLATES = [
 <h2 class="visH2">止损与风险预案</h2>
 <blockquote class="visCallout warn"><b>防守纪律：</b>触及防守价位果断离场，严控最大回撤。</blockquote>
 <ul>
-  <li><b>防守价位：</b>跌破关键防守位&nbsp;</li>
+  <li><b>防守点位：</b>跌破关键防守位&nbsp;</li>
   <li><b>执行动作：</b>破位不侥幸扛单，坚决执行纪律离场</li>
 </ul>
 <p><br></p>
@@ -1067,6 +1097,18 @@ const VISUAL_TEMPLATES = [
 ];
 
 function applyTemplate(tpl) {
+  if (!editorRef.value) return;
+  const rawText = editorRef.value.innerText.replace(/\s+/g, "");
+  // 如果当前笔记为空，直接纯净载入，避免多余首行圆点或空行
+  if (!rawText) {
+    editorRef.value.innerHTML = tpl.html;
+    onCanvasInput();
+    nextTick(() => {
+      editorRef.value.focus();
+      collapseCaretToEnd(editorRef.value);
+    });
+    return;
+  }
   insertHtmlAtCursor(tpl.html);
 }
 
@@ -1720,52 +1762,52 @@ onBeforeUnmount(() => {
               <div class="visToolbar">
                 <!-- 文本块级排版 -->
                 <div class="vtGroup">
-                  <button class="vtBtn" title="普通正文段落" @click="execCmd('formatBlock', '<p>')">正文</button>
-                  <button class="vtBtn h" title="大标题 (H2)" @click="execCmd('formatBlock', '<h2>')">H2</button>
-                  <button class="vtBtn h" title="中标题 (H3)" @click="execCmd('formatBlock', '<h3>')">H3</button>
+                  <button class="vtBtn" title="普通正文段落" @mousedown.prevent @click="execCmd('formatBlock', '<p>')">正文</button>
+                  <button class="vtBtn h" title="小标题 (H2)" @mousedown.prevent @click="execCmd('formatBlock', '<h2>')">H2</button>
+                  <button class="vtBtn h" title="次级标题 (H3)" @mousedown.prevent @click="execCmd('formatBlock', '<h3>')">H3</button>
                 </div>
                 <div class="vtSep"></div>
 
                 <!-- 行内文字修饰 -->
                 <div class="vtGroup">
-                  <button class="vtBtn iconBtn" title="加粗 (Ctrl+B)" @click="execCmd('bold')"><b>B</b></button>
-                  <button class="vtBtn iconBtn" title="斜体 (Ctrl+I)" @click="execCmd('italic')"><i>I</i></button>
-                  <button class="vtBtn iconBtn" title="删除线" @click="execCmd('strikeThrough')"><s>S</s></button>
-                  <button class="vtBtn iconBtn hl" title="重点背景高亮" @click="toggleHighlight()">🖍️</button>
+                  <button class="vtBtn iconBtn" title="加粗 (Ctrl+B)" @mousedown.prevent @click="execCmd('bold')"><b>B</b></button>
+                  <button class="vtBtn iconBtn" title="斜体 (Ctrl+I)" @mousedown.prevent @click="execCmd('italic')"><i>I</i></button>
+                  <button class="vtBtn iconBtn" title="删除线" @mousedown.prevent @click="execCmd('strikeThrough')"><s>S</s></button>
+                  <button class="vtBtn iconBtn hl" title="重点背景高亮" @mousedown.prevent @click="toggleHighlight()">🖍️</button>
                 </div>
                 <div class="vtSep"></div>
 
                 <!-- 块级结构：清单、待办、引用框、分割线 -->
                 <div class="vtGroup">
-                  <button class="vtBtn" title="无序项目列表" @click="execCmd('insertUnorderedList')">• 列表</button>
-                  <button class="vtBtn" title="数字序号列表" @click="execCmd('insertOrderedList')">1. 列表</button>
-                  <button class="vtBtn todoBtn" title="插入待办复选清单 (直接点击方框勾选完成)" @click="insertTodo()">☑ 待办</button>
-                  <button class="vtBtn" title="插入重点备忘引用框" @click="insertCallout()">❝ 重点框</button>
-                  <button class="vtBtn" title="插入水平分割线" @click="insertDivider()">─ 分割线</button>
+                  <button class="vtBtn" title="无序项目列表" @mousedown.prevent @click="execCmd('insertUnorderedList')">• 列表</button>
+                  <button class="vtBtn" title="数字序号列表" @mousedown.prevent @click="execCmd('insertOrderedList')">1. 列表</button>
+                  <button class="vtBtn todoBtn" title="插入待办复选清单 (直接点击方框勾选完成)" @mousedown.prevent @click="insertTodo()">☑ 待办</button>
+                  <button class="vtBtn" title="插入重点备忘引用框" @mousedown.prevent @click="insertCallout()">❝ 重点框</button>
+                  <button class="vtBtn" title="插入水平分割线" @mousedown.prevent @click="insertDivider()">─ 分割线</button>
                 </div>
                 <div class="vtSep"></div>
 
                 <!-- 操盘胶囊速录标签 -->
                 <div class="vtGroup">
                   <span class="vtLabel">速录:</span>
-                  <button class="vtTagBtn tagBuy" title="插入买点标签" @click="insertTag('buy', '买点')">买点</button>
-                  <button class="vtTagBtn tagStop" title="插入止损标签" @click="insertTag('stop', '止损')">止损</button>
-                  <button class="vtTagBtn tagTarget" title="插入止盈标签" @click="insertTag('target', '止盈')">止盈</button>
-                  <button class="vtTagBtn tagLogic" title="插入核心逻辑标签" @click="insertTag('logic', '逻辑')">逻辑</button>
-                  <button class="vtTagBtn tagWarn" title="插入风险警示标签" @click="insertTag('warn', '警示')">警示</button>
+                  <button class="vtTagBtn tagBuy" title="插入买点标签" @mousedown.prevent @click="insertTag('buy', '买点')">买点</button>
+                  <button class="vtTagBtn tagStop" title="插入止损标签" @mousedown.prevent @click="insertTag('stop', '止损')">止损</button>
+                  <button class="vtTagBtn tagTarget" title="插入止盈标签" @mousedown.prevent @click="insertTag('target', '止盈')">止盈</button>
+                  <button class="vtTagBtn tagLogic" title="插入核心逻辑标签" @mousedown.prevent @click="insertTag('logic', '逻辑')">逻辑</button>
+                  <button class="vtTagBtn tagWarn" title="插入风险警示标签" @mousedown.prevent @click="insertTag('warn', '警示')">警示</button>
                 </div>
                 <div class="vtSep"></div>
 
                 <!-- 盘口点位速录 -->
                 <div class="vtGroup" v-if="sel">
                   <span class="vtLabel">点位:</span>
-                  <button class="vtBtn price" @click="insertPriceBadge('现价', sel.f2, sel.f3)" :title="'点击填入现价 ' + fmtN(sel.f2)">
+                  <button class="vtBtn price" @mousedown.prevent @click="insertPriceBadge('现价', sel.f2, sel.f3)" :title="'点击填入现价 ' + fmtN(sel.f2)">
                     现价 <b :class="cls(sel.f3)">{{ fmtN(sel.f2) }}</b>
                   </button>
-                  <button v-if="sel.f8" class="vtBtn" @click="insertMetricBadge('换手', fmtN(sel.f8, 1) + '%')">
+                  <button v-if="sel.f8" class="vtBtn" @mousedown.prevent @click="insertMetricBadge('换手', fmtN(sel.f8, 1) + '%')">
                     换手 <b>{{ fmtN(sel.f8, 1) }}%</b>
                   </button>
-                  <button v-if="sel.f10" class="vtBtn" @click="insertMetricBadge('量比', fmtN(sel.f10))">
+                  <button v-if="sel.f10" class="vtBtn" @mousedown.prevent @click="insertMetricBadge('量比', fmtN(sel.f10))">
                     量比 <b>{{ fmtN(sel.f10) }}</b>
                   </button>
                 </div>
@@ -1774,8 +1816,11 @@ onBeforeUnmount(() => {
                 <!-- 可视化结构化操盘模版 -->
                 <div class="vtGroup">
                   <span class="vtLabel">模版:</span>
-                  <button v-for="tpl in VISUAL_TEMPLATES" :key="tpl.label" class="vtTplBtn" @click="applyTemplate(tpl)">
+                  <button v-for="tpl in VISUAL_TEMPLATES" :key="tpl.label" class="vtTplBtn" @mousedown.prevent @click="applyTemplate(tpl)">
                     {{ tpl.label }}
+                  </button>
+                  <button class="vtTplBtn vtClearBtn" title="清空笔记内容，恢复空白画布" @mousedown.prevent @click="clearNoteCanvas">
+                    清空
                   </button>
                 </div>
               </div>
@@ -2650,6 +2695,14 @@ onBeforeUnmount(() => {
   border-color: var(--accent);
   color: var(--accent);
   background: var(--accent-dim);
+}
+.vtTplBtn.vtClearBtn {
+  color: var(--dim);
+}
+.vtTplBtn.vtClearBtn:hover {
+  border-color: var(--down);
+  color: var(--down);
+  background: color-mix(in srgb, var(--down) 8%, var(--panel));
 }
 
 /* ===== 可视化文档编辑画布 (WYSIWYG Document Canvas) ===== */
