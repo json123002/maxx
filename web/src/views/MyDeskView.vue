@@ -1309,7 +1309,7 @@ onBeforeUnmount(() => {
         </span>
       </nav>
 
-      <div class="stage" v-if="rows.length">
+      <div class="stage" :class="{ isNote: tab === 'note' }" v-if="rows.length">
         <!-- ===== 实时监控(双卡总览) ===== -->
         <div v-if="tab === 'monitor'" class="monGrid">
           <div class="dPanel">
@@ -1372,7 +1372,7 @@ onBeforeUnmount(() => {
 
         <!-- ===== 个股视图:盘口资金 / 基本分析 ===== -->
         <template v-else-if="sel">
-          <header class="hero">
+          <header class="hero" v-if="tab !== 'note'">
             <div class="heroL">
               <div class="heroName">
                 {{ sel.f14 }}
@@ -1656,8 +1656,8 @@ onBeforeUnmount(() => {
             <div v-else-if="tab === 'note'" class="pane notePane">
               <div class="noteHead">
                 <div class="noteHeadL">
-                  <span class="dSubTitle">操盘笔记</span>
-                  <span class="dSubNote">个股独立备忘 · 支持云端同步 · 离开自动保存</span>
+                  <span class="dSubTitle">操盘笔记 · {{ sel?.f14 }} <span class="dSubCode">{{ sel?.f12 }}</span></span>
+                  <span class="dSubNote">{{ sel?.f100 || '个股备忘' }} · 离开自动保存</span>
                 </div>
                 <div class="noteHeadR">
                   <span class="noteSyncStatus">
@@ -1765,10 +1765,7 @@ onBeforeUnmount(() => {
                 ></div>
                 <div class="noteFoot">
                   <span class="noteTip">
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-                    </svg>
-                    可视化文档模式 · 快捷键 <kbd>Ctrl+B</kbd> 加粗 · <kbd>Ctrl+S</kbd> 立即保存 · 换股自动暂存
+                    <kbd>Ctrl+B</kbd> 加粗 · <kbd>Ctrl+S</kbd> 保存 · 换股自动暂存
                   </span>
                   <span class="noteStats">
                     <span>{{ noteTextLength }} 字符</span>
@@ -2167,6 +2164,44 @@ onBeforeUnmount(() => {
   padding: 18px 24px 32px;
   display: flex; flex-direction: column; gap: 18px;
 }
+/* ===== 操盘笔记专属布局: 消除外层舞台滚动条，仅在编辑区内部滚动 ===== */
+.stage.isNote {
+  overflow: hidden;
+  padding: 14px 24px 18px;
+  gap: 0;
+}
+.stage.isNote .detail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 20px 16px;
+}
+.stage.isNote .notePane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stage.isNote .visToolbar {
+  flex: none;
+}
+.stage.isNote .noteEditBox {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.stage.isNote .visCanvas {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+.stage.isNote .noteFoot {
+  flex: none;
+}
 .dPanel {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 14px; padding: 16px 20px 18px; flex: none;
@@ -2386,6 +2421,13 @@ onBeforeUnmount(() => {
   font-size: 13.5px;
   font-weight: 650;
   color: var(--txt);
+}
+.dSubCode {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--dim);
+  font-weight: 400;
+  margin-left: 4px;
 }
 .noteHeadR {
   display: inline-flex;
