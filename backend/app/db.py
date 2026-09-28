@@ -156,6 +156,14 @@ def init_db() -> None:
             PRIMARY KEY (group_id, code)
         );
 
+        CREATE TABLE IF NOT EXISTS desk_note (
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            code       TEXT NOT NULL,
+            content    TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, code)
+        );
+
         CREATE TABLE IF NOT EXISTS op_logs (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             ts         TEXT NOT NULL,

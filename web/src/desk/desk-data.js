@@ -178,3 +178,16 @@ export function buildAlerts(row, changes, flow) {
   const rank = { high: 0, mid: 1, low: 2 };
   return alerts.sort((a, b) => rank[a.level] - rank[b.level]);
 }
+
+/* ---------- 操盘笔记 / 个股备忘 ---------- */
+export async function fetchNote(code) {
+  return api(`/api/desk/note/${code}`);
+}
+
+export async function saveNote(code, content) {
+  return api(`/api/desk/note/${code}`, {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  });
+}
+

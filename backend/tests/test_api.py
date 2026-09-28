@@ -1139,3 +1139,39 @@ def test_blacklist_lifecycle_and_quote_exclusion(client):
     assert client.delete("/api/blacklist/600001", headers=h).status_code == 200  # 幂等
     r = client.get("/api/quote/list?no_st=false", headers=h).json()
     assert r["total"] == 4
+
+
+# ===== 工作台个股笔记 =====
+def test_desk_note(client):
+    assert client.get("/api/desk/note/600001").status_code == 401
+    assert client.put("/api/desk/note/600001", json={"content": "abc"}).status_code == 401
+
+    h1 = login(client, "admin", "admin123")
+    # 初始为空
+    r = client.get("/api/desk/note/600001", headers=h1)
+    assert r.status_code == 200
+    assert r.json()["content"] == ""
+
+    # 保存笔记
+    r = client.put("/api/desk/note/600001", headers=h1, json={"content": "突破回踩介入，目标前高"})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+
+    # 查回笔记
+    r = client.get("/api/desk/note/600001", headers=h1)
+    assert r.status_code == 200
+    assert r.json()["content"] == "突破回踩介入，目标前高"
+    assert "updated_at" in r.json()
+
+    # 用户隔离：另一用户读取该股笔记为空
+    _mkuser(client, h1, "note_user", "pass123")
+    h2 = login(client, "note_user", "pass123")
+    r2 = client.get("/api/desk/note/600001", headers=h2)
+    assert r2.status_code == 200
+    assert r2.json()["content"] == ""
+
+    # 清理测试用户
+    uid = [u["id"] for u in client.get("/api/admin/users", headers=h1).json()["users"]
+           if u["username"] == "note_user"][0]
+    client.delete(f"/api/admin/users/{uid}", headers=h1)
+

@@ -20,6 +20,7 @@ import {
   addGroupItem, removeGroupItem, saveGroupOrder,
   fetchStocks, searchStocks, addStock, removeStock,
   saveStockOrder, importWatchlist,
+  fetchNote, saveNote,
 } from "../desk/desk-data";
 
 /* ---------- 格式化 ---------- */
@@ -141,6 +142,9 @@ function pickTab(t) {
   if (t !== "monitor" && !selected.value) {
     const first = starRows.value[0] || rows.value[0];
     if (first) { userPick = true; selected.value = first.f12; }
+  }
+  if (t === "note" && selected.value && noteCode.value !== selected.value) {
+    loadNote(selected.value);
   }
   tab.value = t;
 }
@@ -730,11 +734,146 @@ function openAnalysis(code) {
   if (c) anaRef.value?.open(c);
 }
 
+/* ---------- 操盘笔记 / 个股备忘 ---------- */
+const noteCode = ref("");
+const noteContent = ref("");
+const noteUpdatedAt = ref("");
+const noteLoading = ref(false);
+const noteSaving = ref(false);
+const noteDirty = ref(false);
+let noteTimer = null;
+
+async function loadNote(code) {
+  if (!code) {
+    noteCode.value = "";
+    noteContent.value = "";
+    noteUpdatedAt.value = "";
+    noteDirty.value = false;
+    return;
+  }
+  if (noteDirty.value && noteCode.value && noteCode.value !== code) {
+    await flushSaveNote(false);
+  }
+  noteCode.value = code;
+  noteLoading.value = true;
+  try {
+    const res = await fetchNote(code);
+    if (noteCode.value === code) {
+      noteContent.value = res.content || "";
+      noteUpdatedAt.value = res.updated_at ? res.updated_at.slice(11, 19) || res.updated_at : "";
+      noteDirty.value = false;
+    }
+  } catch (err) {
+    if (err.message !== "unauthorized") {
+      console.warn("fetchNote error:", err);
+    }
+  } finally {
+    if (noteCode.value === code) {
+      noteLoading.value = false;
+    }
+  }
+}
+
+async function flushSaveNote(isAuto = false) {
+  if (!noteCode.value || !noteDirty.value) return;
+  noteSaving.value = true;
+  const savingCode = noteCode.value;
+  const savingContent = noteContent.value;
+  try {
+    await saveNote(savingCode, savingContent);
+    if (noteCode.value === savingCode) {
+      noteDirty.value = false;
+      const d = new Date();
+      noteUpdatedAt.value = [d.getHours(), d.getMinutes(), d.getSeconds()]
+        .map((n) => String(n).padStart(2, "0")).join(":");
+    }
+    if (!isAuto) {
+      message.success("笔记已保存");
+    }
+  } catch (err) {
+    if (err.message !== "unauthorized") {
+      message.error(err.message || "笔记保存失败");
+    }
+  } finally {
+    noteSaving.value = false;
+  }
+}
+
+function onNoteInput() {
+  noteDirty.value = true;
+  if (noteTimer) clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => {
+    flushSaveNote(true);
+  }, 1200);
+}
+
+function onNoteKeydown(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+    e.preventDefault();
+    if (noteTimer) clearTimeout(noteTimer);
+    flushSaveNote(false);
+  }
+}
+
+const NOTE_TEMPLATES = [
+  {
+    label: "+ 操盘计划",
+    text: `### 🎯 操盘计划
+- **计划买入价**：
+- **目标止盈位**：
+- **底线止损位**：
+- **计划仓位**：
+- **买入依据**：
+`,
+  },
+  {
+    label: "+ 核心逻辑",
+    text: `### 💡 核心逻辑
+- **所属板块/主线**：
+- **催化事件/驱动力**：
+- **主力资金态度**：
+- **技术形态要点**：
+`,
+  },
+  {
+    label: "+ 盘后复盘",
+    text: `### 📝 盘后复盘
+- **今日实际走势**：
+- **盘口承接与异动**：
+- **次日操作预案**：
+`,
+  },
+  {
+    label: "+ 风险提示",
+    text: `### ⚠️ 风险提示
+- **关键防守点位**：
+- **减仓/离场触发条件**：
+- **潜在不确定性**：
+`,
+  },
+];
+
+function insertTemplate(tpl) {
+  const current = noteContent.value || "";
+  const sep = current.length > 0 && !current.endsWith("\n\n") ? (current.endsWith("\n") ? "\n" : "\n\n") : "";
+  noteContent.value = current + sep + tpl.text;
+  onNoteInput();
+}
+
+function insertPrice(priceText) {
+  if (!priceText) return;
+  const current = noteContent.value || "";
+  const sep = current.length > 0 && !current.endsWith("\n") && !current.endsWith(" ") ? " " : "";
+  noteContent.value = current + sep + priceText;
+  onNoteInput();
+}
+
 watch(selected, (code) => {
   if (!code) return;
   loadFlow(code);
   loadF10(code, userPick);
   loadThs(code);
+  loadNote(code);
   userPick = false;
 });
 
@@ -801,6 +940,10 @@ onMounted(async () => {
   window.addEventListener("keydown", onGlobalKeydown);
 });
 onBeforeUnmount(() => {
+  if (noteDirty.value && noteCode.value) {
+    flushSaveNote(false);
+  }
+  if (noteTimer) clearTimeout(noteTimer);
   clearInterval(timer);
   clearTimeout(searchTimer);
   document.removeEventListener("click", onDocClick);
@@ -988,6 +1131,7 @@ onBeforeUnmount(() => {
         <button :class="{ on: tab === 'fund' }" @click="pickTab('fund')">盘口资金</button>
         <button :class="{ on: tab === 'basic' }" @click="pickTab('basic')">基本分析</button>
         <button :class="{ on: tab === 'exec' }" @click="pickTab('exec')">公司架构</button>
+        <button :class="{ on: tab === 'note' }" @click="pickTab('note')">操盘笔记</button>
         <span class="topMeta">
           <template v-if="stockTab && sel">{{ sel.f14 }} {{ sel.f12 }} · </template>
           <i class="liveDot" :class="{ idle: !liveAt }"></i>{{ liveAt || "待刷新" }}
@@ -1277,7 +1421,7 @@ onBeforeUnmount(() => {
             </div>
 
             <!-- ===== 公司架构 ===== -->
-            <div v-else class="pane">
+            <div v-else-if="tab === 'exec'" class="pane">
               <div v-if="f10Cache[selected]?.loading" class="dLoading"><i class="dSpin"></i>资料加载中…</div>
               <template v-else-if="f10">
                 <div class="dSub">管理层构成<span class="dSubNote">董监高 · 点姓名行展开履历</span></div>
@@ -1336,11 +1480,88 @@ onBeforeUnmount(() => {
                 <button class="retryLink" @click="loadF10(selected)">重试</button>
               </div>
             </div>
+
+            <!-- ===== 操盘笔记 ===== -->
+            <div v-else-if="tab === 'note'" class="pane notePane">
+              <div class="noteHead">
+                <div class="noteHeadL">
+                  <span class="dSubTitle">操盘笔记</span>
+                  <span class="dSubNote">个股独立备忘 · 支持云端同步 · 离开自动保存</span>
+                </div>
+                <div class="noteHeadR">
+                  <span class="noteSyncStatus">
+                    <template v-if="noteSaving">
+                      <i class="dSpin noteMiniSpin"></i>保存中…
+                    </template>
+                    <template v-else-if="noteDirty">
+                      <i class="noteDot dirty"></i>有修改待保存
+                    </template>
+                    <template v-else-if="noteUpdatedAt">
+                      <i class="noteDot synced"></i>已同步 ({{ noteUpdatedAt }})
+                    </template>
+                    <template v-else>
+                      <i class="noteDot synced"></i>已同步云端
+                    </template>
+                  </span>
+                  <button class="noteSaveBtn" :disabled="noteSaving || !noteDirty" @click="flushSaveNote(false)" title="快捷键 Ctrl+S / ⌘S">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                      <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                      <polyline points="7 3 7 8 15 8"></polyline>
+                    </svg>
+                    立即保存
+                  </button>
+                </div>
+              </div>
+
+              <!-- 快捷模版与点位速录工具条 -->
+              <div class="noteToolbar">
+                <div class="tplGroup">
+                  <span class="tplCap">快捷模版:</span>
+                  <button v-for="tpl in NOTE_TEMPLATES" :key="tpl.label" class="tplBtn" @click="insertTemplate(tpl)">
+                    {{ tpl.label }}
+                  </button>
+                </div>
+                <div class="refGroup" v-if="sel">
+                  <span class="tplCap">点位速录:</span>
+                  <button class="tplBtn priceBtn" @click="insertPrice('现价:' + fmtN(sel.f2))" :title="'点击填入现价 ' + fmtN(sel.f2)">
+                    现价 <b :class="cls(sel.f3)">{{ fmtN(sel.f2) }}</b>
+                  </button>
+                  <button v-if="sel.f8" class="tplBtn" @click="insertPrice('换手:' + fmtN(sel.f8, 1) + '%')">
+                    换手 <b>{{ fmtN(sel.f8, 1) }}%</b>
+                  </button>
+                  <button v-if="sel.f10" class="tplBtn" @click="insertPrice('量比:' + fmtN(sel.f10))">
+                    量比 <b>{{ fmtN(sel.f10) }}</b>
+                  </button>
+                </div>
+              </div>
+
+              <!-- 编辑区域 -->
+              <div class="noteEditBox">
+                <div v-if="noteLoading" class="noteLoadingMask">
+                  <i class="dSpin"></i>正在载入笔记…
+                </div>
+                <textarea
+                  v-model="noteContent"
+                  class="noteTextarea"
+                  placeholder="记录该股的操盘计划、进出场逻辑、阻力支撑位、盘后复盘心得…&#10;支持 Markdown 格式。切换股票、切换标签或离开页面均会自动保存至云端。"
+                  @input="onNoteInput"
+                  @keydown="onNoteKeydown"
+                ></textarea>
+                <div class="noteFoot">
+                  <span class="noteTip">💡 支持 Markdown 语法 · 快捷键 <kbd>Ctrl+S</kbd> 立即保存 · 换股自动暂存</span>
+                  <span class="noteStats">
+                    <span>{{ (noteContent || '').length }} 字符</span>
+                    <span>{{ noteContent ? noteContent.split('\n').length : 0 }} 行</span>
+                  </span>
+                </div>
+              </div>
+            </div>
           </section>
         </template>
 
         <div v-else class="dPanel dEmptyBig">
-          从左侧列表选择一只股票,查看{{ { fund: "盘口资金", basic: "基本分析", exec: "公司架构" }[tab] }}。
+          从左侧列表选择一只股票,查看{{ { fund: "盘口资金", basic: "基本分析", exec: "公司架构", note: "操盘笔记" }[tab] }}。
         </div>
       </div>
 
@@ -1362,6 +1583,8 @@ onBeforeUnmount(() => {
         <template v-else>
           <button class="ctxItem" @click="ctxAct((r) => pick(r.f12, 'fund'))">盘口资金</button>
           <button class="ctxItem" @click="ctxAct((r) => pick(r.f12, 'basic'))">基本分析</button>
+          <button class="ctxItem" @click="ctxAct((r) => pick(r.f12, 'exec'))">公司架构</button>
+          <button class="ctxItem" @click="ctxAct((r) => pick(r.f12, 'note'))">操盘笔记</button>
           <button class="ctxItem" @click="ctxAct((r) => openAnalysis(r.f12))">战法分析</button>
           <div class="ctxSep"></div>
           <button class="ctxItem" @click="ctxAct((r) => toggleStar(r))">
@@ -1920,6 +2143,208 @@ onBeforeUnmount(() => {
 .alItem.high .alDot { background: var(--up); box-shadow: 0 0 0 3px color-mix(in srgb, var(--up) 15%, transparent); }
 .alItem.mid .alDot { background: var(--hot); }
 .alItem.low .alDot { background: var(--dim); }
+
+/* ===== 操盘笔记 ===== */
+.notePane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.noteHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 2px;
+}
+.noteHeadL {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.dSubTitle {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--txt);
+}
+.noteHeadR {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+.noteSyncStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-family: var(--mono);
+  color: var(--dim);
+}
+.noteMiniSpin {
+  width: 11px;
+  height: 11px;
+}
+.noteDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.noteDot.synced {
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+}
+.noteDot.dirty {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+}
+.noteSaveBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 13px;
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 550;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.noteSaveBtn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+.noteSaveBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+.noteToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.tplGroup, .refGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tplCap {
+  font-size: 11px;
+  color: var(--dim);
+  font-weight: 500;
+  margin-right: 2px;
+}
+.tplBtn {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--txt);
+  font-family: inherit;
+  font-size: 11.5px;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: all 0.12s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tplBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.priceBtn b {
+  font-family: var(--mono);
+}
+.noteEditBox {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.noteEditBox:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.noteLoadingMask {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  z-index: 10;
+  font-size: 13px;
+  color: #fff;
+  backdrop-filter: blur(2px);
+}
+.noteTextarea {
+  width: 100%;
+  min-height: 380px;
+  max-height: 65vh;
+  resize: vertical;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--txt);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, monospace;
+  font-size: 13.5px;
+  line-height: 1.7;
+  padding: 14px 16px;
+  box-sizing: border-box;
+}
+.noteTextarea::placeholder {
+  color: var(--dim);
+  opacity: 0.65;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.noteFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 14px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--dim);
+}
+.noteTip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.noteTip kbd {
+  font-family: var(--mono);
+  background: var(--panel-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 10px;
+}
+.noteStats {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--mono);
+}
 
 /* ===== 响应式 ===== */
 @media (max-width: 1080px) {

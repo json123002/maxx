@@ -539,3 +539,47 @@ def ths_events(code: str, user=Depends(current_user)):
     if not CODE_RE.match(code):
         raise HTTPException(400, "股票代码须为 6 位数字")
     return thsflow.events_of(code)
+
+
+# ---------- 操盘笔记 / 个股备忘 ----------
+
+class NoteIn(BaseModel):
+    content: str = Field(default="", max_length=50000)
+
+
+@router.get("/note/{code}")
+def desk_note_get(code: str, user=Depends(current_user)):
+    """读取某只股票的操盘笔记（按用户隔离）。"""
+    if not CODE_RE.match(code):
+        raise HTTPException(400, "股票代码须为 6 位数字")
+    row = get_conn().execute(
+        "SELECT content, updated_at FROM desk_note WHERE user_id = ? AND code = ?",
+        (user["id"], code),
+    ).fetchone()
+    return {
+        "code": code,
+        "content": row["content"] if row else "",
+        "updated_at": row["updated_at"] if row else "",
+    }
+
+
+@router.put("/note/{code}")
+def desk_note_save(code: str, body: NoteIn, request: Request,
+                   user=Depends(current_user)):
+    """保存或更新个股操盘笔记。"""
+    if not CODE_RE.match(code):
+        raise HTTPException(400, "股票代码须为 6 位数字")
+    now = datetime.now().isoformat(timespec="seconds")
+    content = body.content
+    conn = get_conn()
+    with conn:
+        conn.execute(
+            "INSERT INTO desk_note (user_id, code, content, updated_at)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(user_id, code) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+            (user["id"], code, content, now),
+        )
+    log_op(user, "desk_note_save", f"{code} ({len(content)} 字)",
+           client_ip(request), user_agent(request))
+    return {"ok": True, "code": code, "updated_at": now}
+

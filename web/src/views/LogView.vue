@@ -24,6 +24,7 @@ const ACTION_LABELS = {
   qsource_add: "新增行情源", qsource_enable: "启停行情源",
   qsource_share: "共享行情源", qsource_edit: "编辑行情源", qsource_del: "删除行情源",
   setting_change: "修改设置偏好", setting_modal_open: "打开设置弹窗",
+  desk_note_save: "保存个股笔记",
   desk_stock_add: "工作台加股票", desk_stock_del: "工作台删股票",
   desk_stock_order: "工作台排序", desk_stock_import: "自选导入工作台",
   desk_star_add: "标重点关注", desk_star_del: "取消重点关注",
