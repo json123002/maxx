@@ -146,11 +146,22 @@ onMounted(() => {
               <small class="mSub">({{ ladderData.summary.total_broken }} 炸板)</small>
             </span>
           </div>
-          <div v-if="ladderData.summary.promotions && ladderData.summary.promotions.promotion_rate != null" class="metricCard">
-            <span class="mLabel">昨日连板晋级率</span>
+          <div v-if="ladderData.summary.promotions && ladderData.summary.promotions.promotion_rate != null" class="metricCard promoCard">
+            <span class="mLabel">
+              昨日涨停晋级率
+              <small v-if="ladderData.summary.promotions.yesterday_date" class="mDateTag">
+                ({{ ladderData.summary.promotions.yesterday_date.slice(5) }})
+              </small>
+            </span>
             <span class="mVal accent">
               {{ ladderData.summary.promotions.promotion_rate }}%
               <small class="mSub">({{ ladderData.summary.promotions.promoted_today }}/{{ ladderData.summary.promotions.yesterday_limits }})</small>
+            </span>
+            <span v-if="ladderData.summary.promotions.first_board_count" class="mDetailLine">
+              1进2: <b>{{ ladderData.summary.promotions.rate_1to2 }}%</b> ({{ ladderData.summary.promotions.promoted_1to2_count }}/{{ ladderData.summary.promotions.first_board_count }})
+              <template v-if="ladderData.summary.promotions.multi_board_count">
+                · 连板接力: <b>{{ ladderData.summary.promotions.rate_multi }}%</b>
+              </template>
             </span>
           </div>
           <div v-if="ladderData.summary.hot_industries && ladderData.summary.hot_industries.length" class="metricCard hotCard">
@@ -453,10 +464,13 @@ onMounted(() => {
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
   padding: 10px 14px; display: flex; flex-direction: column; gap: 4px;
 }
-.mLabel { font-size: 11.5px; color: var(--dim); }
+.mLabel { font-size: 11.5px; color: var(--dim); display: flex; align-items: center; gap: 4px; }
+.mDateTag { font-family: var(--mono); font-size: 10.5px; color: var(--accent); opacity: 0.85; }
 .mVal { font-size: 18px; font-weight: 700; font-family: var(--mono); color: var(--txt); }
 .mVal small { font-size: 12px; font-weight: 400; }
 .mSub { font-size: 11px; color: var(--dim); margin-left: 4px; }
+.mDetailLine { font-size: 10.5px; color: var(--dim); margin-top: 2px; line-height: 1.3; }
+.mDetailLine b { font-family: var(--mono); color: var(--txt); }
 .hotCard { grid-column: span 2; }
 @media (max-width: 768px) { .hotCard { grid-column: span 1; } }
 .hotTags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }

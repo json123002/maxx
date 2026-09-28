@@ -10,6 +10,7 @@ history 收盘序列（无炸板维度、窗口受落库天数限制）。
 """
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 from fastapi import APIRouter, Depends
 
@@ -287,11 +288,23 @@ def radar_1to2(user=Depends(current_user)):
 
 @router.get("/ladder")
 def radar_ladder(user=Depends(current_user)):
-    """连板天梯榜：全市场涨停梯队、连板高度、昨日晋级率与炸板池。"""
+    """连板天梯榜：全市场涨停梯队、连板高度、昨日真实晋级率与炸板池。"""
     conn = get_conn()
-    dates = [r["trade_date"] for r in conn.execute(
-        "SELECT DISTINCT trade_date FROM history ORDER BY trade_date DESC LIMIT 10"
+
+    # 1. 确定当前快照基准日期
+    meta = conn.execute("SELECT fetched_at FROM snapshot_meta WHERE id = 1").fetchone()
+    snapshot_date = meta["fetched_at"][:10] if meta and meta["fetched_at"] else datetime.now().strftime("%Y-%m-%d")
+
+    # 2. 检查 history 表中所有历史交易日（倒序）
+    all_dates = [r["trade_date"] for r in conn.execute(
+        "SELECT DISTINCT trade_date FROM history ORDER BY trade_date DESC LIMIT 20"
     ).fetchall()]
+
+    # 3. 严格排除快照当日自身，锁定真正的前序交易日序列
+    # （若 history 已落库快照当日数据，绝不可拿当日当昨日，杜绝自闭环对比错误）
+    prior_dates = [d for d in all_dates if d < snapshot_date]
+    if not prior_dates and len(all_dates) > 1:
+        prior_dates = all_dates[1:]
 
     # 今日涨停票（非 ST、非退市）
     limit_rows = conn.execute(
@@ -314,25 +327,25 @@ def radar_ladder(user=Depends(current_user)):
     codes = [r["code"] for r in limit_rows]
     streaks = {c: 1 for c in codes}
 
-    # 从历史交易日倒推连板天数
-    if codes and dates:
+    # 4. 从严格的前序交易日（prior_dates）倒推真实连续连板天数
+    if codes and prior_dates:
         marks = ",".join("?" * len(codes))
+        date_marks = ",".join("?" * len(prior_dates))
         hist_rows = conn.execute(
-            "SELECT code, trade_date, limit_up FROM history"
-            " WHERE code IN (" + marks + ")"
-            " ORDER BY code, trade_date DESC",
-            codes,
+            f"SELECT code, trade_date, limit_up FROM history"
+            f" WHERE code IN ({marks}) AND trade_date IN ({date_marks})"
+            f" ORDER BY code, trade_date DESC",
+            codes + prior_dates,
         ).fetchall()
-        hist_by_code = defaultdict(list)
+        hist_by_code = defaultdict(dict)
         for hr in hist_rows:
-            hist_by_code[hr["code"]].append(hr)
+            hist_by_code[hr["code"]][hr["trade_date"]] = hr["limit_up"]
 
         for c in codes:
-            days = hist_by_code.get(c, [])
-            # 按日期降序检查历史涨停
+            lu_map = hist_by_code.get(c, {})
             s = 1
-            for d in days:
-                if d["limit_up"] == 1:
+            for d in prior_dates:
+                if lu_map.get(d) == 1:
                     s += 1
                 else:
                     break
@@ -373,21 +386,82 @@ def radar_ladder(user=Depends(current_user)):
     for k in tiers:
         tiers[k].sort(key=lambda x: (x["streak"], x["main_net_yi"] or -9999), reverse=True)
 
-    # 晋级率统计（若有昨日历史）
+    # 5. 晋级率统计（基于严格的上一交易日 y_date）
     promotions = {}
-    if dates:
-        y_date = dates[0]
+    if prior_dates:
+        y_date = prior_dates[0]
         y_limits = conn.execute(
-            "SELECT code FROM history WHERE trade_date = ? AND limit_up = 1 AND name NOT LIKE '%ST%'",
+            "SELECT code, name FROM history"
+            " WHERE trade_date = ? AND limit_up = 1 AND name NOT LIKE '%ST%' AND name NOT LIKE '%退%'",
             (y_date,)
         ).fetchall()
-        y_codes = {r["code"] for r in y_limits}
+        y_codes = {r["code"]: r["name"] for r in y_limits}
+
         if y_codes:
-            # 昨日涨停在今日晋级成二板及以上的数量
-            promoted_cnt = sum(1 for it in ladder_items if it["code"] in y_codes and it["streak"] >= 2)
-            promotions["yesterday_limits"] = len(y_codes)
-            promotions["promoted_today"] = promoted_cnt
-            promotions["promotion_rate"] = round(promoted_cnt / len(y_codes) * 100, 1)
+            # 统计昨日各标的的连板数（以便分拆 1进2 与 连板接力）
+            prior_to_y = prior_dates[1:]
+            y_streaks = {c: 1 for c in y_codes}
+            if prior_to_y:
+                y_list = list(y_codes.keys())
+                ymarks = ",".join("?" * len(y_list))
+                pydmarks = ",".join("?" * len(prior_to_y))
+                y_hist = conn.execute(
+                    f"SELECT code, trade_date, limit_up FROM history"
+                    f" WHERE code IN ({ymarks}) AND trade_date IN ({pydmarks})"
+                    f" ORDER BY code, trade_date DESC",
+                    y_list + prior_to_y,
+                ).fetchall()
+                y_hist_map = defaultdict(dict)
+                for hr in y_hist:
+                    y_hist_map[hr["code"]][hr["trade_date"]] = hr["limit_up"]
+                for c in y_list:
+                    s = 1
+                    for d in prior_to_y:
+                        if y_hist_map[c].get(d) == 1:
+                            s += 1
+                        else:
+                            break
+                    y_streaks[c] = s
+
+            # 昨日首板池 (y_streak == 1) 与昨日连板池 (y_streak >= 2)
+            y_first = {c for c, s in y_streaks.items() if s == 1}
+            y_multi = {c for c, s in y_streaks.items() if s >= 2}
+
+            # 晋级明细：
+            # 1. 整体涨停晋级（昨日涨停中今日继续封死二板及以上）
+            promoted_all = [
+                {"code": it["code"], "name": it["name"], "streak": it["streak"]}
+                for it in ladder_items if it["code"] in y_codes and it["streak"] >= 2
+            ]
+            # 2. 1进2 晋级（昨日首板今天成2连板）
+            promoted_1to2 = [
+                {"code": it["code"], "name": it["name"]}
+                for it in ladder_items if it["code"] in y_first and it["streak"] == 2
+            ]
+            # 3. 连板接力晋级（昨日>=2板今天继续成>=3板）
+            promoted_multi = [
+                {"code": it["code"], "name": it["name"], "streak": it["streak"]}
+                for it in ladder_items if it["code"] in y_multi and it["streak"] >= 3
+            ]
+
+            total_y = len(y_codes)
+            total_promoted = len(promoted_all)
+            rate_overall = round(total_promoted / total_y * 100, 1) if total_y > 0 else 0.0
+
+            promotions = {
+                "yesterday_date": y_date,
+                "yesterday_limits": total_y,
+                "promoted_today": total_promoted,
+                "promotion_rate": rate_overall,
+                # 细分 1进2 与连板接力晋级
+                "first_board_count": len(y_first),
+                "promoted_1to2_count": len(promoted_1to2),
+                "rate_1to2": round(len(promoted_1to2) / len(y_first) * 100, 1) if y_first else 0.0,
+                "multi_board_count": len(y_multi),
+                "promoted_multi_count": len(promoted_multi),
+                "rate_multi": round(len(promoted_multi) / len(y_multi) * 100, 1) if y_multi else 0.0,
+                "promoted_stocks": promoted_all,
+            }
 
     # 最强行业板块
     ind_counter = defaultdict(int)
