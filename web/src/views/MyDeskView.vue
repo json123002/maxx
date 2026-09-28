@@ -951,7 +951,7 @@ function insertTodo() {
 }
 
 function insertCallout() {
-  insertHtmlAtCursor('<blockquote class="visCallout">💡 <b>重点备忘：</b>在此输入核心逻辑与盘中要点…</blockquote><p><br></p>');
+  insertHtmlAtCursor('<blockquote class="visCallout"><b>重点备忘：</b>在此输入核心逻辑与盘中要点…</blockquote><p><br></p>');
 }
 
 function insertDivider() {
@@ -988,48 +988,49 @@ function insertMetricBadge(label, val) {
 
 const VISUAL_TEMPLATES = [
   {
-    label: "+ 🎯 操盘计划",
+    label: "操盘计划",
     html: `
-<h2 class="visH2">🎯 操盘执行计划</h2>
-<blockquote class="visCallout">💡 <b>执行原则：</b>制定明确进出场计划，顺势而为，知行合一。</blockquote>
-<div class="visTodo"><input type="checkbox" /> <span><b>计划买入：</b>在关键支撑均线/突破平台附近逢低分批介入</span></div>
-<div class="visTodo"><input type="checkbox" /> <span><b>第一目标：</b>前高阻力位分批减仓锁定利润</span></div>
-<div class="visTodo"><input type="checkbox" /> <span><b>底线止损：</b>跌破关键防守位坚决执行纪律</span></div>
-<div class="visTodo"><input type="checkbox" /> <span><b>仓位管控：</b>严格控制单票风险敞口</span></div>
+<h2 class="visH2">操盘计划</h2>
+<div class="visTodo"><input type="checkbox" /> <span><b>介入条件：</b>关键阻力突破 / 回踩均线确认点位</span></div>
+<div class="visTodo"><input type="checkbox" /> <span><b>目标区间：</b>第一目标位 ___ 元，盈亏比预期 ≥ 3:1</span></div>
+<div class="visTodo"><input type="checkbox" /> <span><b>止损防守：</b>跌破关键支撑 ___ 元果断执行</span></div>
+<div class="visTodo"><input type="checkbox" /> <span><b>仓位控制：</b>单票风险敞口控制在 ___%</span></div>
 <p><br></p>
 `,
   },
   {
-    label: "+ 💡 核心逻辑",
+    label: "核心逻辑",
     html: `
-<h2 class="visH2">💡 核心驱动逻辑</h2>
+<h2 class="visH2">核心驱动逻辑</h2>
 <ul>
-  <li><b>所属主线板块：</b>受益于行业高景气度与重大政策催化</li>
-  <li><b>主力资金动向：</b>大单与超大单持续净流入，盘口承接有力</li>
-  <li><b>形态与量价配合：</b>均线多头排列，量价稳步温和放大</li>
+  <li><b>板块催化：</b>所属主线热点驱动与政策/行业催化预期</li>
+  <li><b>量价配合：</b>均线形态、突破结构与成交量承接状态</li>
+  <li><b>资金沉淀：</b>主力资金连续流向与盘口大单活跃度</li>
+  <li><b>风险排查：</b>近期解禁、财务减持或潜在利空排查</li>
 </ul>
 <p><br></p>
 `,
   },
   {
-    label: "+ 📝 盘后复盘",
+    label: "盘后复盘",
     html: `
-<h2 class="visH2">📝 盘后复盘备忘</h2>
-<blockquote class="visCallout">📊 <b>今日走势综述：</b>盘面强弱与预期对比，承接是否充分。</blockquote>
+<h2 class="visH2">盘后复盘</h2>
+<blockquote class="visCallout"><b>走势综述：</b>全天强弱表现、主力资金参与度与盘口承接特征。</blockquote>
 <ul>
-  <li><b>盘中分时异动：</b>上午放量拉升，午后高位震荡洗盘，无异常砸盘</li>
-  <li><b>次日操作预案：</b>若集合竞价放量高开则顺势持股；低开跌破均线减仓观望</li>
+  <li><b>量能与分时：</b>早盘放量承接与午后量价配合情况</li>
+  <li><b>纪律执行：</b>是否按既定计划操作，有无追高或侥幸心理</li>
+  <li><b>次日预案：</b>高开/低开关键点位应对策略</li>
 </ul>
 <p><br></p>
 `,
   },
   {
-    label: "+ 🛑 止损预案",
+    label: "止损预案",
     html: `
-<h2 class="visH2">🛑 风险控制与止损警戒</h2>
-<blockquote class="visCallout warn">⚠️ <b>底线提示：</b>本金安全永远第一，绝不抗单，不侥幸补仓。</blockquote>
-<div class="visTodo"><input type="checkbox" /> <span><b>核心防守点位：</b>以近期起涨点或日均线为最后防守线</span></div>
-<div class="visTodo"><input type="checkbox" /> <span><b>应急离场机制：</b>如盘中放量跌破防守线，立即无条件止损出局</span></div>
+<h2 class="visH2">止损与风险预案</h2>
+<blockquote class="visCallout warn"><b>防守纪律：</b>触及防守价位果断离场，严控最大回撤。</blockquote>
+<div class="visTodo"><input type="checkbox" /> <span><b>防守价位：</b>跌破 ___ 元（最大容忍回撤 ___%）</span></div>
+<div class="visTodo"><input type="checkbox" /> <span><b>执行动作：</b>破位不侥幸扛单，盘中或尾盘坚决离场</span></div>
 <p><br></p>
 `,
   },
@@ -1717,11 +1718,11 @@ onBeforeUnmount(() => {
                 <!-- 操盘胶囊速录标签 -->
                 <div class="vtGroup">
                   <span class="vtLabel">速录:</span>
-                  <button class="vtTagBtn tagBuy" title="插入买点标签" @click="insertTag('buy', '🎯 计划买入')">🎯 买点</button>
-                  <button class="vtTagBtn tagStop" title="插入止损标签" @click="insertTag('stop', '🛑 防守止损')">🛑 止损</button>
-                  <button class="vtTagBtn tagTarget" title="插入目标标签" @click="insertTag('target', '🚀 目标止盈')">🚀 止盈</button>
-                  <button class="vtTagBtn tagLogic" title="插入核心逻辑标签" @click="insertTag('logic', '💡 核心逻辑')">💡 逻辑</button>
-                  <button class="vtTagBtn tagWarn" title="插入风险警示标签" @click="insertTag('warn', '⚠️ 风险警示')">⚠️ 警示</button>
+                  <button class="vtTagBtn tagBuy" title="插入买点标签" @click="insertTag('buy', '买点')">买点</button>
+                  <button class="vtTagBtn tagStop" title="插入止损标签" @click="insertTag('stop', '止损')">止损</button>
+                  <button class="vtTagBtn tagTarget" title="插入止盈标签" @click="insertTag('target', '止盈')">止盈</button>
+                  <button class="vtTagBtn tagLogic" title="插入核心逻辑标签" @click="insertTag('logic', '逻辑')">逻辑</button>
+                  <button class="vtTagBtn tagWarn" title="插入风险警示标签" @click="insertTag('warn', '警示')">警示</button>
                 </div>
                 <div class="vtSep"></div>
 
@@ -2606,12 +2607,12 @@ onBeforeUnmount(() => {
 }
 .vtTplBtn {
   background: var(--panel);
-  border: 1px dashed var(--line-strong);
-  border-radius: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
   color: var(--txt);
   font-family: inherit;
   font-size: 11px;
-  padding: 3px 8px;
+  padding: 2.5px 7px;
   cursor: pointer;
   transition: all 0.12s;
 }
@@ -2658,9 +2659,9 @@ onBeforeUnmount(() => {
   outline: none;
   color: var(--txt);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 14px;
-  line-height: 1.8;
-  padding: 16px 20px;
+  font-size: 13px;
+  line-height: 1.65;
+  padding: 14px 18px;
   box-sizing: border-box;
 }
 .visCanvas:empty::before {
@@ -2669,58 +2670,59 @@ onBeforeUnmount(() => {
   opacity: 0.6;
   pointer-events: none;
   display: block;
-  line-height: 1.8;
-  font-size: 13px;
+  line-height: 1.65;
+  font-size: 12.5px;
   white-space: pre-wrap;
 }
 .visCanvas h2, .visCanvas .visH2 {
-  font-size: 16px;
+  font-size: 13.5px;
   font-weight: 650;
   color: var(--txt);
-  margin: 16px 0 8px;
-  padding-bottom: 4px;
+  margin: 12px 0 6px;
+  padding-bottom: 3px;
   border-bottom: 1px solid var(--line);
 }
 .visCanvas h3, .visCanvas .visH3 {
-  font-size: 14.5px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--txt);
-  margin: 12px 0 6px;
+  margin: 8px 0 4px;
 }
 .visCanvas p {
-  margin: 6px 0;
+  margin: 4px 0;
 }
 .visCanvas ul, .visCanvas ol {
-  margin: 6px 0;
-  padding-left: 24px;
+  margin: 4px 0;
+  padding-left: 20px;
 }
 .visCanvas li {
-  margin: 3px 0;
+  margin: 2px 0;
+  font-size: 12.5px;
 }
 .visCanvas blockquote, .visCanvas .visCallout {
-  margin: 10px 0;
-  padding: 10px 14px;
+  margin: 8px 0;
+  padding: 6px 12px;
   border-left: 3px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
-  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  border-radius: 0 6px 6px 0;
   color: var(--txt);
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: 12px;
+  line-height: 1.6;
 }
 .visCanvas .visCallout.warn {
   border-left-color: var(--hot);
-  background: color-mix(in srgb, var(--hot) 8%, var(--panel));
+  background: color-mix(in srgb, var(--hot) 6%, var(--panel));
 }
 .visCanvas .visTodo {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 6px 0;
-  font-size: 13.5px;
+  gap: 7px;
+  margin: 4px 0;
+  font-size: 12.5px;
 }
 .visCanvas .visTodo input[type="checkbox"] {
-  width: 15px;
-  height: 15px;
+  width: 13px;
+  height: 13px;
   cursor: pointer;
   accent-color: var(--accent);
   flex-shrink: 0;
