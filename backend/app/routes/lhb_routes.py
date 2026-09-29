@@ -39,16 +39,69 @@ def lhb_dates(user=Depends(current_user)):
 
 @router.get("/daily")
 def lhb_daily(date: str = Query(...), user=Depends(current_user)):
-    """某日榜单：按净买额绝对值降序。"""
+    """某日榜单:同股同日多原因合并为一条(取量级最大一条的金额,原因并列展示),
+    按净买额绝对值降序;附加每股买卖两侧席位标签汇总与当日游资动向聚合。"""
     _check_date(date)
     conn = get_conn()
-    rows = [dict(r) for r in conn.execute(
-        "SELECT * FROM lhb_item WHERE trade_date = ?"
-        " ORDER BY ABS(net_amt) DESC", (date,)).fetchall()]
+    raw = [dict(r) for r in conn.execute(
+        "SELECT * FROM lhb_item WHERE trade_date = ?", (date,)).fetchall()]
+
+    # 合并同股多原因:东财该报表同股多原因多行,金额字段为口径相同的榜单汇总,
+    # 不可累加,取 |net_amt| 最大一条的金额;total 仍返回原始行数
+    merged: dict = {}
+    for r in raw:
+        m = merged.get(r["code"])
+        if m is None:
+            r["explains"] = [r["explain"]] if r["explain"] else []
+            merged[r["code"]] = r
+        else:
+            if r["explain"] and r["explain"] not in m["explains"]:
+                m["explains"].append(r["explain"])
+            if abs(r["net_amt"] or 0) > abs(m["net_amt"] or 0):
+                r["explains"] = m["explains"]
+                merged[r["code"]] = r
+    rows = sorted(merged.values(), key=lambda r: -abs(r["net_amt"] or 0))
+
     buy = sum(r["net_amt"] or 0 for r in rows if (r["net_amt"] or 0) > 0)
     sell = sum(-(r["net_amt"] or 0) for r in rows if (r["net_amt"] or 0) < 0)
-    return {"date": date, "total": len(rows), "rows": rows,
-            "summary": {"buy": buy, "sell": sell}}
+
+    # 当日席位一遍扫描:每股两侧标签汇总 + 游资(按别名)动向聚合
+    famous = famous_map(conn)
+    seat_rows = conn.execute(
+        "SELECT code, name, side, dept_name, buy, sell, net FROM lhb_seat"
+        " WHERE trade_date = ?", (date,)).fetchall()
+    tags_by_code: dict = {}
+    flow: dict = {}
+    for s in seat_rows:
+        t = tag_of(s["dept_name"], famous)
+        if not t:
+            continue
+        side = "buy" if s["side"] == "B" else "sell"
+        entry = tags_by_code.setdefault(
+            s["code"], {"buy": {}, "sell": {}, "buy_aliases": [], "sell_aliases": []})
+        entry[side][t["tag"]] = entry[side].get(t["tag"], 0) + 1
+        if t["tag"] == "游资":
+            alias = t.get("alias") or s["dept_name"]
+            if alias not in entry[side + "_aliases"]:
+                entry[side + "_aliases"].append(alias)
+            f = flow.setdefault(alias, {"alias": alias, "dept_name": s["dept_name"],
+                                        "buy": 0.0, "sell": 0.0,
+                                        "net": 0.0, "stocks": {}})
+            f["buy"] += s["buy"] or 0.0
+            f["sell"] += s["sell"] or 0.0
+            f["net"] += s["net"] or 0.0
+            st = f["stocks"].setdefault(s["code"], {"code": s["code"],
+                                                    "name": s["name"], "net": 0.0})
+            st["net"] += s["net"] or 0.0
+    for r in rows:
+        r["seat_tags"] = tags_by_code.get(r["code"])
+    famous_flow = sorted(
+        ({**f, "stocks": sorted(f["stocks"].values(), key=lambda x: -abs(x["net"]))[:3]}
+         for f in flow.values()),
+        key=lambda f: -abs(f["net"]))[:12]
+
+    return {"date": date, "total": len(raw), "rows": rows,
+            "summary": {"buy": buy, "sell": sell}, "famous_flow": famous_flow}
 
 
 @router.get("/stock/{code}")

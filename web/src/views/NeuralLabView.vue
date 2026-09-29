@@ -1541,13 +1541,27 @@ const isOptimizedApplied = computed(() => {
   return OPT_WEIGHT_LABELS.every(([k]) => Math.abs((form[k] || 0) - w[k]) < 0.01);
 });
 
-async function runOptimize(force = false) {
-  optLoading.value = true;
+async function postOptimize(force, retried = false) {
   try {
-    const res = await api("/api/neural/optimize", {
+    return await api("/api/neural/optimize", {
       method: "POST",
       body: { top_k: 30, samples: 2000, force },
     });
+  } catch (err) {
+    // 网关 504 只是代理层截断，后端仍在计算且完成后会写入 30 分钟缓存；
+    // 稍候以非 force 重试一次，通常直接命中缓存拿到结果
+    if (!retried && /504/.test(err.message || "")) {
+      await new Promise((r) => setTimeout(r, 8000));
+      return postOptimize(false, true);
+    }
+    throw err;
+  }
+}
+
+async function runOptimize(force = false) {
+  optLoading.value = true;
+  try {
+    const res = await postOptimize(force);
     optimizeResult.value = res;
     if (force) {
       message.success({
@@ -1557,7 +1571,9 @@ async function runOptimize(force = false) {
     }
   } catch (err) {
     if (err.message !== "unauthorized") {
-      message.error("回测寻优失败: " + (err.message || "请求异常"));
+      message.error(/504/.test(err.message || "")
+        ? "寻优首次计算量较大，服务端仍在后台运算，请 1 分钟后再点「重新寻优」"
+        : "回测寻优失败: " + (err.message || "请求异常"));
     }
   } finally {
     optLoading.value = false;

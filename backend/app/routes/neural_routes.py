@@ -749,9 +749,14 @@ def run_neural_optimize(req: NeuralOptimizeRequest, user=Depends(current_user)):
                       for r in bench_rows if r["code"] in target_map and r["f2"]]
         bench = float(np.mean(bench_rets)) if bench_rets else 0.0
         Z = _forward(base_req, rows)["Z"]  # 预计算标准化矩阵，后续候选直接复用
-        datasets.append({"date": d, "rows": rows, "Z": Z,
-                         "target_map": target_map, "target_desc": target_desc,
-                         "bench": bench})
+        # 预计算选出价/目标价对齐数组：_eval_w 每轮直接 numpy 向量化取收益，
+        # 避免 2500+ 组参数 × N 天的 Python 逐行字典查找（首次寻优超时 504 的主因之一）
+        codes = [r["code"] for r in rows]
+        p0 = np.array([float(r["f2"] or 0.0) for r in rows], dtype=np.float64)
+        pt = np.array([float(target_map[c]) if target_map.get(c) else np.nan
+                       for c in codes], dtype=np.float64)
+        datasets.append({"date": d, "rows": rows, "Z": Z, "p0": p0, "pt": pt,
+                         "target_desc": target_desc, "bench": bench})
 
     if not datasets:
         raise HTTPException(400, "历史截面合格样本过少（需 >= 30 只），无法回测寻优")
@@ -775,16 +780,14 @@ def run_neural_optimize(req: NeuralOptimizeRequest, user=Depends(current_user)):
                            bias_override=[0.0, 0.0, 0.0, 0.0],
                            precomputed={"Z": ds["Z"]})
             k = min(req.top_k, len(ds["rows"]))
-            rets = []
-            for ix in fwd["order"][:k]:
-                row = ds["rows"][int(ix)]
-                p0 = row["f2"]
-                pt = ds["target_map"].get(row["code"])
-                if p0 and pt:
-                    rets.append((pt - p0) / p0 * 100.0)
-            if not rets:
+            idx = fwd["order"][:k]
+            p0 = ds["p0"][idx]
+            pt = ds["pt"][idx]
+            mask = (p0 > 0) & np.isfinite(pt)
+            if not mask.any():
                 continue
-            wr = float(np.mean([1.0 if x > 0 else 0.0 for x in rets])) * 100.0
+            rets = (pt[mask] - p0[mask]) / p0[mask] * 100.0
+            wr = float(np.mean(rets > 0)) * 100.0
             avg = float(np.mean(rets))
             per_date.append({"date": ds["date"], "target": ds["target_desc"],
                              "win_rate": round(wr, 1), "avg_return": round(avg, 2),

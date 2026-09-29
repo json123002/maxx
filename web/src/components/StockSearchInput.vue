@@ -31,6 +31,10 @@ function pick(r) {
   open.value = false;
 }
 
+function pickFirst() {
+  if (open.value && rows.value.length) pick(rows.value[0]);
+}
+
 function onBlur() {
   setTimeout(() => { open.value = false; }, 150);   // 让点击候选先生效
 }
@@ -39,11 +43,14 @@ function onBlur() {
 <template>
   <div class="ssRoot">
     <input v-model="kw" class="ssIn" placeholder="代码 / 名称 / 拼音"
-           @input="onInput" @blur="onBlur" @focus="rows.length && (open = true)" />
-    <div v-if="open && rows.length" class="ssDrop">
-      <div v-for="r in rows" :key="r.f12" class="ssItem" @click="pick(r)">
+           @input="onInput" @blur="onBlur" @focus="rows.length && (open = true)"
+           @keydown.enter.prevent="pickFirst" @keydown.esc="open = false" />
+    <div v-if="open" class="ssDrop">
+      <!-- mousedown.prevent:在 input blur 之前完成选中,避免 blur 先关下拉吃掉点击 -->
+      <div v-for="r in rows" :key="r.f12" class="ssItem" @mousedown.prevent="pick(r)">
         <b>{{ r.f14 }}</b><span>{{ r.f12 }}</span>
       </div>
+      <div v-if="!rows.length" class="ssEmpty">无匹配股票</div>
     </div>
   </div>
 </template>
@@ -67,4 +74,5 @@ function onBlur() {
 }
 .ssItem span { color: var(--dim); font-family: var(--mono); font-size: 12px; }
 .ssItem:hover { background: var(--hover); }
+.ssEmpty { padding: 10px; color: var(--dim); font-size: 12px; text-align: center; }
 </style>
