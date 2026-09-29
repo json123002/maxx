@@ -88,9 +88,13 @@ const rows = ref([]);
 const summary = ref(null);
 const flow = ref([]);          // 当日游资动向
 const loading = ref(false);
-const expanded = ref("");          // 展开的 code(同股多原因已合并,一股一行)
-const seatDetail = ref(null);      // { buy, sell } | null
-const seatLoading = ref(false);
+// 多行同时展开状态与席位缓存
+const expandedCodes = ref(new Set());
+const seatDetails = ref({});        // code -> { buy, sell }
+const seatLoadings = ref({});       // code -> boolean
+
+const isExpanded = (code) => expandedCodes.value.has(code);
+const calcSeatSum = (list, key) => list?.reduce((s, x) => s + (x[key] || 0), 0) || 0;
 
 const dailyKw = ref("");
 const dailyFilter = ref("all");    // all | buy | sell | hot | inst
@@ -113,12 +117,6 @@ const maxAbsNet = computed(() =>
 
 /* 游资净买合计(当日榜上网传游资席位的净额总和) */
 const flowNet = computed(() => flow.value.reduce((s, f) => s + (f.net || 0), 0));
-
-/* 展开行买五/卖五合计 */
-const seatBuySum = computed(() =>
-  seatDetail.value?.buy?.reduce((s, x) => s + (x.buy || 0), 0) || 0);
-const seatSellSum = computed(() =>
-  seatDetail.value?.sell?.reduce((s, x) => s + (x.sell || 0), 0) || 0);
 
 /* 前端实时过滤与多维排序 */
 const displayRows = computed(() => {
@@ -186,8 +184,9 @@ async function loadDates() {
 async function loadDaily() {
   if (!date.value) return;
   loading.value = true;
-  expanded.value = "";
-  seatDetail.value = null;
+  expandedCodes.value.clear();
+  seatDetails.value = {};
+  seatLoadings.value = {};
   try {
     const d = await fetchLhbDaily(date.value);
     rows.value = d.rows;
@@ -210,16 +209,60 @@ function stepDay(dir) {
 }
 
 async function toggleRow(r) {
-  if (expanded.value === r.code) { expanded.value = ""; return; }
-  expanded.value = r.code;
-  seatDetail.value = null;
-  seatLoading.value = true;
+  const code = r.code;
+  if (expandedCodes.value.has(code)) {
+    expandedCodes.value.delete(code);
+    return;
+  }
+  expandedCodes.value.add(code);
+  if (seatDetails.value[code]) return; // 已有缓存无需重复请求
+
+  seatLoadings.value = { ...seatLoadings.value, [code]: true };
   try {
-    seatDetail.value = await fetchLhbStockSeats(r.code, date.value);
+    const data = await fetchLhbStockSeats(code, date.value);
+    seatDetails.value = { ...seatDetails.value, [code]: data };
   } catch (err) {
     if (err.message !== "unauthorized") message.error(err.message || "席位加载失败");
   } finally {
-    seatLoading.value = false;
+    seatLoadings.value = { ...seatLoadings.value, [code]: false };
+  }
+}
+
+// 全部展开 / 全部收起
+const allExpanded = computed(() =>
+  displayRows.value.length > 0 && displayRows.value.every((r) => expandedCodes.value.has(r.code))
+);
+
+async function toggleAllRows() {
+  if (allExpanded.value) {
+    expandedCodes.value.clear();
+    return;
+  }
+  const toFetch = [];
+  displayRows.value.forEach((r) => {
+    expandedCodes.value.add(r.code);
+    if (!seatDetails.value[r.code] && !seatLoadings.value[r.code]) {
+      toFetch.push(r.code);
+    }
+  });
+  if (toFetch.length) {
+    const newLoadings = { ...seatLoadings.value };
+    toFetch.forEach((c) => { newLoadings[c] = true; });
+    seatLoadings.value = newLoadings;
+    try {
+      const results = await Promise.all(
+        toFetch.map((c) => fetchLhbStockSeats(c, date.value).catch(() => null))
+      );
+      const newDetails = { ...seatDetails.value };
+      toFetch.forEach((c, idx) => {
+        if (results[idx]) newDetails[c] = results[idx];
+      });
+      seatDetails.value = newDetails;
+    } finally {
+      const finLoadings = { ...seatLoadings.value };
+      toFetch.forEach((c) => { finLoadings[c] = false; });
+      seatLoadings.value = finLoadings;
+    }
   }
 }
 
@@ -392,7 +435,7 @@ onMounted(loadDates);
 
 
 
-      <!-- 每日榜单工具条:快速搜索 + 分类筛选 + 数量统计 -->
+      <!-- 每日榜单工具条:快速搜索 + 分类筛选 + 全部展开/收起 + 数量统计 -->
       <div class="toolBar">
         <input v-model="dailyKw" class="kwIn" placeholder="过滤代码 / 名称" />
         <div class="tabBtns sm">
@@ -400,9 +443,12 @@ onMounted(loadDates);
                   :class="{ on: dailyFilter === flt.k }"
                   @click="dailyFilter = flt.k">{{ flt.name }}</button>
         </div>
+        <button class="ghostBtn sm" @click="toggleAllRows">
+          {{ allExpanded ? "全部收起" : "全部展开" }}
+        </button>
         <span class="barSpacer"></span>
         <span class="cnt">
-          显示 {{ displayRows.length }} / {{ rows.length }} 只个股 · 点击行展开席位明细
+          显示 {{ displayRows.length }} / {{ rows.length }} 只个股 · 点击行支持同时展开多只席位明细
         </span>
       </div>
 
@@ -433,7 +479,7 @@ onMounted(loadDates);
           </thead>
           <tbody>
             <template v-for="(r, i) in displayRows" :key="r.code">
-              <tr class="clk" :class="{ hot: r.seat_tags?.buy_aliases?.length, exp: expanded === r.code }"
+              <tr class="clk" :class="{ hot: r.seat_tags?.buy_aliases?.length, exp: isExpanded(r.code) }"
                   @click="toggleRow(r)">
                 <td class="l rank" :class="{ top: i < 3 }">{{ i + 1 }}</td>
                 <td class="l name">
@@ -461,16 +507,16 @@ onMounted(loadDates);
                 <td class="dimN">{{ fmtLhbAmt(r.sell_amt) }}</td>
                 <td>{{ fmtN(r.turnover_rate) }}%</td>
               </tr>
-              <!-- 展开席位明细(买五 / 卖五双栏对比) -->
-              <tr v-if="expanded === r.code" class="expRow">
+              <!-- 展开席位明细(买五 / 卖五双栏对比,支持同时多开) -->
+              <tr v-if="isExpanded(r.code)" class="expRow">
                 <td colspan="10">
-                  <div v-if="seatLoading" class="expLoading">席位明细加载中…</div>
-                  <div v-else-if="seatDetail" class="seatCols">
+                  <div v-if="seatLoadings[r.code]" class="expLoading">席位明细加载中…</div>
+                  <div v-else-if="seatDetails[r.code]" class="seatCols">
                     <!-- 买入前五 -->
                     <div class="seatCol">
                       <div class="seatColHead">
                         <span class="seatColT up">买入席位 (买五)</span>
-                        <span class="seatTotal">合计: <b class="up">{{ fmtLhbAmt(seatBuySum) }}</b></span>
+                        <span class="seatTotal">合计: <b class="up">{{ fmtLhbAmt(calcSeatSum(seatDetails[r.code]?.buy, 'buy')) }}</b></span>
                       </div>
                       <table class="subTbl">
                         <thead>
@@ -482,7 +528,7 @@ onMounted(loadDates);
                           </tr>
                         </thead>
                         <tbody>
-                          <tr v-for="s in seatDetail.buy" :key="s.id">
+                          <tr v-for="s in seatDetails[r.code]?.buy || []" :key="s.id">
                             <td class="l seatCell">
                               <span class="seatName clk" @click="openProfile(s.dept_name)">{{ s.dept_name }}</span>
                               <em v-if="s.seat_tag" class="tag" :class="tagCls(s.seat_tag)" :title="tagTitle(s.seat_tag)">
@@ -493,7 +539,7 @@ onMounted(loadDates);
                             <td class="dimN">{{ fmtLhbAmt(s.sell) }}</td>
                             <td :class="cls(s.net)">{{ (s.net || 0) > 0 ? "+" : "" }}{{ fmtLhbAmt(s.net) }}</td>
                           </tr>
-                          <tr v-if="!seatDetail.buy.length">
+                          <tr v-if="!seatDetails[r.code]?.buy?.length">
                             <td colspan="4" class="dimTxt" style="text-align: center; padding: 12px 0;">无买入席位明细</td>
                           </tr>
                         </tbody>
@@ -503,7 +549,7 @@ onMounted(loadDates);
                     <div class="seatCol">
                       <div class="seatColHead">
                         <span class="seatColT down">卖出席位 (卖五)</span>
-                        <span class="seatTotal">合计: <b class="down">{{ fmtLhbAmt(seatSellSum) }}</b></span>
+                        <span class="seatTotal">合计: <b class="down">{{ fmtLhbAmt(calcSeatSum(seatDetails[r.code]?.sell, 'sell')) }}</b></span>
                       </div>
                       <table class="subTbl">
                         <thead>
@@ -515,7 +561,7 @@ onMounted(loadDates);
                           </tr>
                         </thead>
                         <tbody>
-                          <tr v-for="s in seatDetail.sell" :key="s.id">
+                          <tr v-for="s in seatDetails[r.code]?.sell || []" :key="s.id">
                             <td class="l seatCell">
                               <span class="seatName clk" @click="openProfile(s.dept_name)">{{ s.dept_name }}</span>
                               <em v-if="s.seat_tag" class="tag" :class="tagCls(s.seat_tag)" :title="tagTitle(s.seat_tag)">
@@ -526,7 +572,7 @@ onMounted(loadDates);
                             <td class="down">{{ fmtLhbAmt(s.sell) }}</td>
                             <td :class="cls(s.net)">{{ (s.net || 0) > 0 ? "+" : "" }}{{ fmtLhbAmt(s.net) }}</td>
                           </tr>
-                          <tr v-if="!seatDetail.sell.length">
+                          <tr v-if="!seatDetails[r.code]?.sell?.length">
                             <td colspan="4" class="dimTxt" style="text-align: center; padding: 12px 0;">无卖出席位明细</td>
                           </tr>
                         </tbody>
