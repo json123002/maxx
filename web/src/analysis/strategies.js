@@ -44,11 +44,16 @@ export function computeSentiment(rows, idxBars) {
 }
 
 // 量能分量（情绪温度 30 分）：上证指数当日成交额 / 前 5 日均额，盘中按上海交易时段线性外推
-// idxBars 需含 amount；缺失或无数据时按中性 15 分计
+// idxBars 需含 amount；兜底源（腾讯/新浪）无成交额时改用成交量序列（指数口径量比≈额比）；皆缺按中性 15 分计
 export function idxVolumeScore(idxBars) {
   let volScore = 15, volRatio = null, volSrc = "缺失（按中性计）", volNote = "";
   if (idxBars && idxBars.length > 5) {
-    const amts = idxBars.map(b => b.amount).filter(isFinite);
+    let amts = idxBars.map(b => b.amount).filter(isFinite);
+    let byVol = false;
+    if (amts.length <= 5) {   // 东财被风控/不可达时落到腾讯/新浪，amount 全为 NaN
+      amts = idxBars.map(b => b.vol).filter(isFinite);
+      byVol = true;
+    }
     if (amts.length > 5) {
       const ma = amts.slice(-6, -1).reduce((s, x) => s + x, 0) / 5;
       if (ma > 0) {
@@ -77,6 +82,7 @@ export function idxVolumeScore(idxBars) {
         }
         volRatio = lastAmt / ma;
         volScore = Math.min(30, Math.max(0, (volRatio - 0.5) * 30));
+        if (byVol) volNote = (volNote ? volNote + "，" : "") + "按成交量口径";
       }
     }
   }
