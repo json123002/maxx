@@ -15,6 +15,7 @@ const routes = [
       { path: "watchlist", name: "watchlist", component: () => import("../views/WatchlistView.vue"), meta: { title: "我的自选" } },
       { path: "desk", name: "desk", component: () => import("../views/MyDeskView.vue"), meta: { title: "我的工作台", pageTrack: false } },
       { path: "history", name: "history", component: () => import("../views/HistoryView.vue"), meta: { title: "历史榜单", pageTrack: false } },
+      { path: "lhb", name: "lhb", component: () => import("../views/LhbView.vue"), meta: { title: "龙虎榜", pageTrack: false } },
       { path: "radar", name: "radar", component: () => import("../views/RadarView.vue"), meta: { title: "涨停雷达", pageTrack: false } },
       { path: "sector", name: "sector", component: () => import("../views/SectorStrengthView.vue"), meta: { title: "板块强度", pageTrack: false } },
       { path: "flow", name: "flow", component: () => import("../views/CapitalFlowView.vue"), meta: { title: "板块资金", pageTrack: false } },

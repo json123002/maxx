@@ -1284,3 +1284,129 @@ def test_neural_optimize(client):
     assert r2.status_code == 200 and r2.json()["cached"] is True
 
 
+
+
+# ===== 龙虎榜 =====
+from app import lhb  # noqa: E402
+
+_LHB_ITEMS = [
+    {"SECURITY_CODE": "600111", "SECURITY_NAME_ABBR": "测试稀土",
+     "TRADE_DATE": "2026-09-28 00:00:00", "EXPLAIN": "日涨幅偏离值达7%",
+     "CLOSE_PRICE": 30.0, "CHANGE_RATE": 10.0, "BILLBOARD_NET_AMT": 2e8,
+     "BILLBOARD_BUY_AMT": 3e8, "BILLBOARD_SELL_AMT": 1e8,
+     "ACCUM_AMOUNT": 8e8, "TURNOVERRATE": 12.5},
+    # 同股同日第二原因(多条上榜)
+    {"SECURITY_CODE": "600111", "SECURITY_NAME_ABBR": "测试稀土",
+     "TRADE_DATE": "2026-09-28 00:00:00", "EXPLAIN": "连续三日涨幅偏离值达20%",
+     "CLOSE_PRICE": 30.0, "CHANGE_RATE": 10.0, "BILLBOARD_NET_AMT": 1.5e8,
+     "BILLBOARD_BUY_AMT": 2.5e8, "BILLBOARD_SELL_AMT": 1e8,
+     "ACCUM_AMOUNT": 8e8, "TURNOVERRATE": 12.5},
+    {"SECURITY_CODE": "000222", "SECURITY_NAME_ABBR": "测试化工",
+     "TRADE_DATE": "2026-09-28 00:00:00", "EXPLAIN": "日跌幅偏离值达7%",
+     "CLOSE_PRICE": 9.0, "CHANGE_RATE": -9.9, "BILLBOARD_NET_AMT": -5e7,
+     "BILLBOARD_BUY_AMT": 2e7, "BILLBOARD_SELL_AMT": 7e7,
+     "ACCUM_AMOUNT": 3e8, "TURNOVERRATE": 6.1},
+]
+_LHB_SEATS = [
+    {"SECURITY_CODE": "600111", "SECURITY_NAME_ABBR": "测试稀土",
+     "TRADE_DATE": "2026-09-28 00:00:00", "OPERATEDEPT_CODE": "10001",
+     "OPERATEDEPT_NAME": "测试证券上海分公司", "EXPLANATION": "日涨幅偏离值达7%",
+     "BUY": 1.2e8, "SELL": 1e7, "NET": 1.1e8},
+    {"SECURITY_CODE": "600111", "SECURITY_NAME_ABBR": "测试稀土",
+     "TRADE_DATE": "2026-09-28 00:00:00", "OPERATEDEPT_CODE": "10002",
+     "OPERATEDEPT_NAME": "测试证券北京营业部", "EXPLANATION": "日涨幅偏离值达7%",
+     "BUY": 8e7, "SELL": 2e7, "NET": 6e7},
+    {"SECURITY_CODE": "000222", "SECURITY_NAME_ABBR": "测试化工",
+     "TRADE_DATE": "2026-09-28 00:00:00", "OPERATEDEPT_CODE": "10001",
+     "OPERATEDEPT_NAME": "测试证券上海分公司", "EXPLANATION": "日跌幅偏离值达7%",
+     "BUY": 3e7, "SELL": 5e7, "NET": -2e7},
+]
+
+
+def _lhb_ingest(conn, date="2026-09-28", monkeypatch=None):
+    if monkeypatch:
+        monkeypatch.setattr(lhb, "fetch_daily", lambda d: _LHB_ITEMS)
+        # 真实 fetch_seats 会给每条加 side;夹具同样补 B/S 两侧
+        monkeypatch.setattr(lhb, "fetch_seats",
+                            lambda d: [dict(r, side=s) for s in ("B", "S")
+                                       for r in _LHB_SEATS])
+    return lhb.ingest_date(conn, date)
+
+
+def test_lhb_requires_auth(client):
+    assert client.get("/api/lhb/daily?date=2026-09-28").status_code == 401
+
+
+def test_lhb_ingest_idempotent_and_daily(client, monkeypatch):
+    conn = db.get_conn()
+    assert _lhb_ingest(conn, monkeypatch=monkeypatch) == 3
+    _lhb_ingest(conn)   # 重复采集幂等(INSERT OR REPLACE)
+    n = conn.execute("SELECT COUNT(*) AS c FROM lhb_item"
+                     " WHERE trade_date='2026-09-28'").fetchone()["c"]
+    assert n == 3   # 同股多原因各算一条,重复采集不翻倍
+    nseat = conn.execute("SELECT COUNT(*) AS c FROM lhb_seat"
+                         " WHERE trade_date='2026-09-28'").fetchone()["c"]
+    assert nseat == 6   # 3 条明细 × 买卖两侧(side 不同,unique 不冲突)
+
+    h = login(client, "admin", "admin123")
+    r = client.get("/api/lhb/daily?date=2026-09-28", headers=h)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["total"] == 3
+    assert abs(d["rows"][0]["net_amt"]) >= abs(d["rows"][1]["net_amt"])   # 按绝对值降序
+    assert d["summary"]["buy"] > 0 and d["summary"]["sell"] > 0
+    assert "2026-09-28" in client.get("/api/lhb/dates", headers=h).json()["dates"]
+
+
+def test_lhb_bad_date(client):
+    h = login(client, "admin", "admin123")
+    assert client.get("/api/lhb/daily?date=20260928", headers=h).status_code == 400
+
+
+def test_lhb_stock_seats(client):
+    h = login(client, "admin", "admin123")
+    r = client.get("/api/lhb/stock/600111/seats?date=2026-09-28", headers=h)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert len(d["buy"]) == 2 and d["buy"][0]["dept_name"] == "测试证券上海分公司"
+    assert len(d["sell"]) == 2   # 同一批明细在卖榜侧(side='S')
+    assert client.get("/api/lhb/stock/60011/seats?date=2026-09-28",
+                      headers=h).status_code == 400
+
+
+def test_lhb_fill_outcomes_and_stats(client, monkeypatch):
+    conn = db.get_conn()
+    # kline 序列:T 日收 30,T+1 开 31 / 高 33 / 低 29.5 / 收 32 → 胜
+    bars = [{"date": "2026-09-25", "open": 27, "high": 28, "low": 26.5,
+             "close": 27.5, "vol": 1, "amount": 1, "pct": None},
+            {"date": "2026-09-28", "open": 28, "high": 30.2, "low": 27.8,
+             "close": 30.0, "vol": 1, "amount": 1, "pct": None},
+            {"date": "2026-09-29", "open": 31.0, "high": 33.0, "low": 29.5,
+             "close": 32.0, "vol": 1, "amount": 1, "pct": None}]
+    monkeypatch.setattr(lhb.kline, "get_bars", lambda code, days=60: bars)
+    filled = lhb.fill_outcomes(conn, "2026-09-29")
+    assert filled == 6   # 两只股的买卖两侧席位行全部回填(同股同日按 code+date 批量更新)
+
+    row = conn.execute(
+        "SELECT * FROM lhb_seat WHERE code='600111' AND side='B'"
+        " AND dept_code='10001'").fetchone()
+    assert row["t_close"] == 30.0 and row["t1_close"] == 32.0
+    assert row["t1_high"] == 33.0
+
+    lhb.recompute_stats(conn)
+    h = login(client, "admin", "admin123")
+    r = client.get("/api/lhb/seats?min_apps=1", headers=h)
+    assert r.status_code == 200, r.text
+    stats = {s["dept_name"]: s for s in r.json()["rows"]}
+    sh = stats["测试证券上海分公司"]
+    assert sh["appearances"] == 4          # 两股 × 买卖两侧(各侧独立计)
+    # 全部样本次日收涨(夹具 kline 对两股同一生效):胜率 = 1
+    assert sh["win_rate"] == 1.0
+    assert abs(sh["avg_open_premium"] - (31 / 30 - 1)) < 1e-6
+
+    r2 = client.get("/api/lhb/seat/测试证券上海分公司", headers=h)
+    assert r2.status_code == 200, r2.text
+    d = r2.json()
+    assert d["stat"]["appearances"] == 4
+    assert len(d["recent"]) >= 2
+    assert client.get("/api/lhb/seat/不存在席位", headers=h).status_code == 404

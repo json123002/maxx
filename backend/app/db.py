@@ -194,6 +194,53 @@ def init_db() -> None:
             code         TEXT PRIMARY KEY,
             fetched_date TEXT NOT NULL
         );
+
+        -- 龙虎榜:每日个股榜单(同股同日可因不同原因多次上榜)
+        CREATE TABLE IF NOT EXISTS lhb_item (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            name TEXT,
+            explain TEXT,
+            close_price REAL, change_rate REAL,
+            net_amt REAL, buy_amt REAL, sell_amt REAL,
+            accum_amount REAL, turnover_rate REAL,
+            fetched_at TEXT,
+            UNIQUE (trade_date, code, explain)
+        );
+        CREATE INDEX IF NOT EXISTS idx_lhb_item_date ON lhb_item(trade_date);
+        CREATE INDEX IF NOT EXISTS idx_lhb_item_code ON lhb_item(code, trade_date);
+
+        -- 龙虎榜:营业部席位明细 + 次日表现回填(t_close 取 kline 前复权口径,自洽)
+        CREATE TABLE IF NOT EXISTS lhb_seat (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            name TEXT,
+            side TEXT NOT NULL,          -- 'B' 买榜 / 'S' 卖榜
+            dept_code TEXT NOT NULL,
+            dept_name TEXT NOT NULL,
+            buy REAL, sell REAL, net REAL,
+            t_close REAL,
+            t1_open REAL, t1_high REAL, t1_low REAL, t1_close REAL,
+            filled_at TEXT,
+            UNIQUE (trade_date, code, side, dept_code)
+        );
+        CREATE INDEX IF NOT EXISTS idx_lhb_seat_dept ON lhb_seat(dept_name, trade_date);
+
+        -- 席位画像物化统计(stats_job 每日收盘后重建)
+        CREATE TABLE IF NOT EXISTS lhb_seat_stat (
+            dept_name TEXT PRIMARY KEY,
+            appearances INTEGER NOT NULL,
+            win_cnt INTEGER NOT NULL,
+            win_rate REAL,               -- 无次日结果样本时为 NULL(勿默认 0 误导)
+            avg_open_premium REAL, avg_close_pct REAL, avg_max_premium REAL,
+            total_net REAL,
+            last_date TEXT,
+            top_stocks TEXT,             -- JSON: [{code,name,n}]
+            co_seats TEXT,               -- JSON: [{dept,n}]
+            updated_at TEXT
+        );
         """
     )
     _migrate_quote_cols(conn)

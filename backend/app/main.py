@@ -9,8 +9,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config, db, scheduler
 from .routes import (admin_routes, auth_routes, blacklist_routes, desk_routes,
-                     log_routes, neural_routes, quote_routes, radar_routes,
-                     settings_routes, watchlist_routes)
+                     lhb_routes, log_routes, neural_routes, quote_routes,
+                     radar_routes, settings_routes, watchlist_routes)
 from .security import hash_password
 
 logging.basicConfig(level=logging.INFO,
@@ -39,6 +39,7 @@ app.include_router(settings_routes.router)
 app.include_router(desk_routes.router)
 app.include_router(radar_routes.router)
 app.include_router(neural_routes.router)
+app.include_router(lhb_routes.router)
 app.include_router(log_routes.router)
 
 # 本地开发：uvicorn 直接托管前端（生产由 nginx 托管 / 并反代 /api）

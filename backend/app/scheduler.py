@@ -7,7 +7,7 @@ import time
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import config, db, fetcher, thsflow
+from . import config, db, fetcher, lhb, thsflow
 
 log = logging.getLogger("scheduler")
 _lock = threading.Lock()
@@ -147,6 +147,12 @@ def start() -> None:
                    id="ths_events", max_instances=1, coalesce=True)
     _sched.add_job(history_job, "cron", day_of_week="mon-fri",
                    hour=15, minute=6, id="history")
+    # 龙虎榜:发布窗口约 16:30-18:00,18/19/20 点各试一次(已采到则为 no-op);
+    # 席位次日结果回填+画像重建放在 15:20(history 15:06 落库之后)
+    _sched.add_job(lhb.collect_job, "cron", day_of_week="mon-fri",
+                   hour="18-20", minute=5, id="lhb", max_instances=1, coalesce=True)
+    _sched.add_job(lhb.stats_job, "cron", day_of_week="mon-fri",
+                   hour=15, minute=20, id="lhb_stats", max_instances=1, coalesce=True)
     _sched.add_job(maintenance_job, "cron", hour=3, minute=30,
                    id="maintenance")
     _sched.start()
@@ -154,6 +160,7 @@ def start() -> None:
     threading.Thread(target=fetch_job, kwargs={"force": True}, daemon=True).start()
     threading.Thread(target=thsflow.collect_job, kwargs={"force": True},
                      daemon=True).start()
+    threading.Thread(target=lhb.backfill, daemon=True).start()   # 空表才回填,否则秒退
     log.info("scheduler started, interval=%s min", config.FETCH_INTERVAL_MIN)
 
 

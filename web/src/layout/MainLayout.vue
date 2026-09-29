@@ -115,7 +115,7 @@ import {
   DownOutlined, KeyOutlined, LogoutOutlined,
   DashboardOutlined, FundViewOutlined, TeamOutlined, StarOutlined,
   FileTextOutlined, HistoryOutlined, FireOutlined, SettingOutlined, RadarChartOutlined,
-  CrownOutlined, ExperimentOutlined,
+  CrownOutlined, ExperimentOutlined, TrophyOutlined,
 } from "@ant-design/icons-vue";
 import { authState, logout } from "../stores/auth";
 import { api } from "../api/client";
@@ -149,6 +149,7 @@ const MENUS = [
     { path: "/sector", title: "板块强度", icon: CrownOutlined },
     { path: "/flow", title: "板块资金", icon: RadarChartOutlined },
     { path: "/history", title: "历史榜单", icon: HistoryOutlined },
+    { path: "/lhb", title: "龙虎榜", icon: TrophyOutlined },
   ] },
   { path: "/watchlist", title: "我的自选", icon: StarOutlined },
   { path: "/desk", title: "我的工作台", icon: FundViewOutlined },
