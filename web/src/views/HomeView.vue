@@ -327,10 +327,11 @@ async function load() {
     source.value = meta.source;
     stale.value = !!meta.stale;
     Object.assign(stats, meta.stats, { down: meta.stats.down ?? (meta.stats.valid - meta.stats.up) });
-    computeSenti(meta.stats);
-    fetchIndexKline()                       // 再补量能分量(失败则维持中性 15 分)
+    // 情绪温度等量能分量就绪后一次性渲染:先按中性15分上屏会闪出偏高的旧值再跳变
+    // (如缩量日先显示"64 活跃"再跳"59 中性");取数失败才回退中性并在提示注明
+    fetchIndexKline()
       .then((i) => computeSenti(meta.stats, i))
-      .catch(() => {});
+      .catch(() => computeSenti(meta.stats));
     hot.value = pickTopComposite(list.rows || [], 6);
     overlayHotRealtime();
     // 缓存本次结果,下次进页面先渲染缓存(1M 小水管下避免白屏等待)
@@ -367,7 +368,10 @@ try {
     fetchedAt.value = c.fetchedAt || "";
     source.value = c.source || "";
     Object.assign(stats, c.stats);
-    computeSenti(c.stats);
+    // 缓存渲染同样等量能分量(模块级缓存,二次进入基本零等待),不闪中性15分的旧值
+    fetchIndexKline()
+      .then((i) => computeSenti(c.stats, i))
+      .catch(() => computeSenti(c.stats));
     hot.value = c.hot || [];
   }
 } catch (e) {}
