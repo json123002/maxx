@@ -16,6 +16,18 @@
         <template v-else>
           <div v-if="phase === 'error'" class="anaLoading">{{ errorMsg }}</div>
           <div v-if="phase === 'ready'" class="anaBasis">数据：{{ klineSrc }} · {{ basisNote }}</div>
+          <!-- K线 + 筹码分布(筹码按全部日K窗口计算,口径见指标行) -->
+          <div v-if="phase === 'ready'" class="anaCharts">
+            <div class="anaKWrap"><KChart :bars="barsRef" /></div>
+            <div class="anaChipCol"><ChipChart :chips="chipsRef" /></div>
+          </div>
+          <div v-if="phase === 'ready' && chipsRef" class="anaChipMeta">
+            获利比例 <b :class="chipsRef.profitRatio > 0.5 ? 'up' : 'down'">{{ (chipsRef.profitRatio * 100).toFixed(1) }}%</b>
+            · 平均成本 <b>{{ fmtN(chipsRef.avgCost) }}</b>
+            · 90%成本 {{ fmtN(chipsRef.ci90.lo) }}~{{ fmtN(chipsRef.ci90.hi) }} 集中度 {{ (chipsRef.conc90 * 100).toFixed(1) }}%
+            · 70%成本 {{ fmtN(chipsRef.ci70.lo) }}~{{ fmtN(chipsRef.ci70.hi) }} 集中度 {{ (chipsRef.conc70 * 100).toFixed(1) }}%
+            <span class="chipNote">近 {{ chipsRef.days }} 日窗口{{ turnoverModeNote }}</span>
+          </div>
           <!-- 多页签：综合分析 / 趋势波段 / 趋势启动 / 超跌反弹 / 3030战法 / 资金流向 / 基本面 -->
           <div class="anaTabs">
             <button v-for="(m, i) in mods" :key="i" class="anaTab" :class="{ on: i === activeTab }" :data-i="i">{{ m.title.split(" · ")[0] }}</button>
@@ -35,11 +47,14 @@
 
 <script setup>
 /* ===== 个股分析弹窗(移植自旧 screener-analysis.js 的 openAnalysis/closeAnalysis/renderTabs)===== */
-import { ref, onBeforeUnmount } from "vue";
+import { ref, computed, onBeforeUnmount } from "vue";
 import { message } from "ant-design-vue";
 import { fmtN, cls } from "../utils/format";
 import { fetchKline, fetchMoneyFlow, fetchIndexKline, KLINE_DAYS } from "./data";
 import { smaLast, rsiWilder, macdLast } from "./indicators";
+import { computeChips } from "./chips";
+import KChart from "../stock/KChart.vue";
+import ChipChart from "../stock/ChipChart.vue";
 import {
   computeSentiment, stockHeat,
   evalTrend, evalStartup, evalOversold, eval3030, evalMoneyFlow, evalFundamental, evalOverall,
@@ -60,6 +75,14 @@ const activeTab = ref(0);
 const fading = ref(false);      // anaBodyFade:淡出 220ms
 const entering = ref(false);    // anaContentFade:淡入 320ms
 const bodyRef = ref(null);
+const barsRef = ref([]);        // 日K(图表条用)
+const chipsRef = ref(null);     // 筹码分布结果
+
+// 换手率口径标注(兜底源无换手字段时降级估算)
+const turnoverModeNote = computed(() => {
+  const m = chipsRef.value && chipsRef.value.turnoverMode;
+  return m === "est" ? " · 换手率按流通股估算" : m === "pseudo" ? " · 换手率按相对量估算" : "";
+});
 
 function close() {
   visible.value = false;
@@ -110,6 +133,8 @@ async function open(code) {
   errorMsg.value = "";
   basisNote.value = "";
   klineSrc.value = "";
+  barsRef.value = [];
+  chipsRef.value = null;
   phase.value = "loading";
   visible.value = true;
   bindEsc();
@@ -133,6 +158,11 @@ async function open(code) {
 
   const c = bars.map(b => b.close);
   const price = typeof row.f2 === "number" ? row.f2 : c[c.length - 1]; // 筛选快照现价做实时校正
+  barsRef.value = bars;
+  // 筹码分布:按全部日K窗口;流通股本=快照 f21 流通市值 / f2 现价(兜底源缺换手字段时降级为估算口径)
+  const floatShares = (typeof row.f21 === "number" && typeof row.f2 === "number" && row.f2 > 0)
+    ? row.f21 / row.f2 : null;
+  chipsRef.value = computeChips(bars, { floatShares, price });
   const ctx = {
     row, bars, mf, idx, price,
     ma5: smaLast(c, 5), ma10: smaLast(c, 10), ma20: smaLast(c, 20),
@@ -162,3 +192,19 @@ async function open(code) {
 
 defineExpose({ open });
 </script>
+
+<style scoped>
+.anaCharts { display: flex; gap: 8px; height: 340px; margin-bottom: 8px; }
+.anaKWrap { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.anaChipCol { width: 170px; flex: none; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.anaChipMeta { font-size: 12px; color: var(--dim); margin-bottom: 10px; line-height: 1.7; }
+.anaChipMeta b { color: var(--txt); font-weight: 600; }
+.anaChipMeta b.up { color: var(--up); }
+.anaChipMeta b.down { color: var(--down); }
+.chipNote { margin-left: 6px; opacity: 0.8; }
+@media (max-width: 640px) {
+  .anaCharts { flex-direction: column; height: auto; }
+  .anaKWrap { height: 300px; }
+  .anaChipCol { width: 100%; height: 180px; }
+}
+</style>

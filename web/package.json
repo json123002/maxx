@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "dev:remote": "cross-env TS_API_TARGET=http://47.94.235.93 vite",
-    "test": "node --test src/stock/phases.test.js"
+    "test": "node --test \"src/**/*.test.js\""
   },
   "dependencies": {
     "@ant-design/icons-vue": "^7.0.1",
