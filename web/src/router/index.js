@@ -18,6 +18,7 @@ const routes = [
       { path: "radar", name: "radar", component: () => import("../views/RadarView.vue"), meta: { title: "涨停雷达", pageTrack: false } },
       { path: "sector", name: "sector", component: () => import("../views/SectorStrengthView.vue"), meta: { title: "板块强度", pageTrack: false } },
       { path: "flow", name: "flow", component: () => import("../views/CapitalFlowView.vue"), meta: { title: "板块资金", pageTrack: false } },
+      { path: "neural", name: "neural", component: () => import("../views/NeuralLabView.vue"), meta: { title: "神经网络实验室", pageTrack: false } },
       { path: "stock/:code", name: "stock", component: () => import("../views/StockView.vue"), meta: { title: "个股详情", pageTrack: false } },
       { path: "settings", name: "settings", component: () => import("../views/SettingsView.vue"), meta: { title: "设置" } },
       // 操作日志:仅隐藏 root 可见(菜单隐藏 + 路由守卫 + 后端 404 三道)

@@ -115,7 +115,7 @@ import {
   DownOutlined, KeyOutlined, LogoutOutlined,
   DashboardOutlined, FundViewOutlined, TeamOutlined, StarOutlined,
   FileTextOutlined, HistoryOutlined, FireOutlined, SettingOutlined, RadarChartOutlined,
-  CrownOutlined,
+  CrownOutlined, ExperimentOutlined,
 } from "@ant-design/icons-vue";
 import { authState, logout } from "../stores/auth";
 import { api } from "../api/client";
@@ -144,6 +144,7 @@ const MENUS = [
   { path: "/home", title: "总览", icon: DashboardOutlined },
   { key: "grp-quote", title: "行情筛选", icon: FundViewOutlined, children: [
     { path: "/screener", title: "换手率筛选", icon: FundViewOutlined },
+    { path: "/neural", title: "神经网络实验室", icon: ExperimentOutlined },
     { path: "/radar", title: "涨停雷达", icon: FireOutlined },
     { path: "/sector", title: "板块强度", icon: CrownOutlined },
     { path: "/flow", title: "板块资金", icon: RadarChartOutlined },

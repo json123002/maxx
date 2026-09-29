@@ -171,6 +171,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import {
   FundViewOutlined, FireOutlined, CrownOutlined, FundOutlined, RocketOutlined,
+  ExperimentOutlined,
 } from "@ant-design/icons-vue";
 import { api } from "../api/client";
 import { authState } from "../stores/auth";
@@ -182,14 +183,14 @@ import HomeTicker from "../components/HomeTicker.vue";
 const features = [
   { title: "换手率筛选", icon: FundViewOutlined, path: "/screener",
     desc: "按换手率/涨跌幅/行业/量比等多维量化指标客观统计全市场个股活跃度。" },
+  { title: "神经网络实验室", icon: ExperimentOutlined, path: "/neural",
+    desc: "突触权重可调、拓扑推演与多层非线性激活的深度学习概率预测模型。" },
   { title: "涨停雷达", icon: FireOutlined, path: "/radar",
     desc: "连板天梯梯队复盘 × 一进二候选：客观六维粗筛，纯作盘面观察统计。" },
   { title: "板块强度", icon: CrownOutlined, path: "/sector",
     desc: "全市场行业板块涨跌幅排行、涨跌家数比、涨停梯队与领涨龙头矩阵。" },
   { title: "资金流向", icon: FundOutlined, path: "/flow",
     desc: "概念与行业分时主力资金净额、5分钟异动与资金广度分布统计。" },
-  { title: "趋势统计", icon: RocketOutlined, path: "",
-    desc: "全市场均线多空结构与形态阶段宏观统计，仅作环境参考，不荐股。" },
 ];
 
 // ===== 刊头:日期 / 星期 / 分时段问候 =====

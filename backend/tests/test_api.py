@@ -1175,3 +1175,112 @@ def test_desk_note(client):
            if u["username"] == "note_user"][0]
     client.delete(f"/api/admin/users/{uid}", headers=h1)
 
+
+# ===== 神经网络实验室 =====
+def test_neural_predict_unauthorized(client):
+    r = client.post("/api/neural/predict", json={})
+    assert r.status_code == 401
+
+
+def test_neural_predict_success(client):
+    db.replace_latest(SAMPLE, "实时行情")
+    h = login(client, "admin", "admin123")
+    payload = {
+        "data_source": "latest",
+        "exclude_st": True,
+        "exclude_suspended": True,
+        "min_turnover": 1.0,
+        "max_turnover": 80.0,
+        "min_amount_yi": 0.1,
+        "weight_turnover": 70.0,
+        "weight_capital": 80.0,
+        "weight_volume_ratio": 50.0,
+        "weight_momentum": 60.0,
+        "activation": "gelu",
+        "temperature": 0.8,
+        "stagflation_penalty": True,
+        "top_k": 10
+    }
+    r = client.post("/api/neural/predict", headers=h, json=payload)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert "telemetry" in data
+    assert len(data["telemetry"]) == 5
+    assert "network_topology" in data
+    assert "results" in data
+    assert isinstance(data["results"], list)
+    if len(data["results"]) > 0:
+        top = data["results"][0]
+        assert "confidence" in top
+        assert "grade" in top
+        assert "attribution" in top
+        assert "summary" in top["attribution"]
+
+
+def test_neural_dates_and_backtest(client):
+    h = login(client, "admin", "admin123")
+    # 自给自足：把当前样本快照落一份到历史基准日，不依赖其它用例的执行顺序
+    db.replace_latest(SAMPLE, "实时行情")
+    n = db.save_history("2026-09-18")
+    assert n == len(SAMPLE)
+    r = client.get("/api/neural/dates", headers=h)
+    assert r.status_code == 200
+    d = r.json()
+    assert "latest" in d
+    assert "history_dates" in d
+    assert any(x["date"] == "2026-09-18" for x in d["history_dates"])
+
+    payload = {
+        "base_date": "2026-09-18",
+        "top_k": 5
+    }
+    r2 = client.post("/api/neural/backtest", headers=h, json=payload)
+    assert r2.status_code == 200
+    d2 = r2.json()
+    assert "win_rate" in d2
+    assert "avg_return" in d2
+    assert "benchmark_return" in d2
+    assert "alpha" in d2
+    assert "results" in d2
+
+
+def test_neural_optimize(client):
+    """回测寻优：历史截面不足时报 400；样本充足时返回最优权重与指标，且可缓存。"""
+    h = login(client, "admin", "admin123")
+    db.replace_latest(SAMPLE, "实时行情")
+    # 测试库历史样本只有 5 行（< 30 只门槛）→ 明确拒绝
+    db.save_history("2026-09-17")
+    r = client.post("/api/neural/optimize", headers=h, json={"samples": 20})
+    assert r.status_code == 400
+
+    # 造两个充足的历史截面（同一天复制样本并扰动代码，凑够 >=30 只）
+    conn = db.get_conn()
+    for dt in ("2026-09-18", "2026-09-19"):
+        for i in range(8):
+            for j, s in enumerate(SAMPLE):
+                if s["f2"] is None:
+                    continue
+                conn.execute(
+                    "INSERT OR REPLACE INTO history"
+                    " (trade_date, code, name, industry, market, f2, f3, f6, f7, f8,"
+                    "  f10, f17, f18, f21, f24, f62, limit_up)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (dt, f"60{i}{j}04", f"寻优{i}{j}", s["industry"], s["market"],
+                     s["f2"] * (1 + i * 0.01), s["f3"], s["f6"], s["f7"], s["f8"],
+                     s["f10"], s["f2"], s["f2"], s["f21"], s["f24"],
+                     (s["f6"] or 0) * 0.05, 0))
+        conn.commit()
+    r = client.post("/api/neural/optimize", headers=h,
+                    json={"samples": 40, "top_k": 10, "force": True})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["samples_evaluated"] >= 40
+    assert "weights" in d["best"] and "win_rate" in d["best"]
+    assert len(d["leaderboard"]) >= 1
+    assert d["cached"] is False
+    # 相同条件再次调用 → 命中缓存
+    r2 = client.post("/api/neural/optimize", headers=h,
+                     json={"samples": 40, "top_k": 10})
+    assert r2.status_code == 200 and r2.json()["cached"] is True
+
+
