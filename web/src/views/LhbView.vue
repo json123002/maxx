@@ -365,31 +365,7 @@ onMounted(loadDates);
         </div>
       </div>
 
-      <!-- 游资动向看板:当日上榜的知名游资席位,可点击直达席位画像 -->
-      <div v-if="flow.length" class="flowPanel">
-        <div class="flowHead">
-          <span class="flowTitle">游资动向看板</span>
-          <span class="flowNote">网传席位口径 · 点击游资名号可穿透查看历史胜率画像 · 不构成投资建议</span>
-        </div>
-        <div class="flowChips">
-          <div v-for="f in flow" :key="f.alias" class="flowChip">
-            <div class="fcTop">
-              <span class="fcAlias clk" :title="'查看 ' + f.alias + ' 席位画像'"
-                    @click="openProfile(f.dept_name || f.alias)">
-                <b>{{ f.alias }}</b>
-                <em class="chipArrow">›</em>
-              </span>
-              <span class="fcNet" :class="cls(f.net)">{{ f.net > 0 ? "+" : "" }}{{ fmtLhbAmt(f.net) }}</span>
-            </div>
-            <div class="fcStocks">
-              <router-link v-for="s in f.stocks" :key="s.code" :to="'/stock/' + s.code"
-                           class="fcStock" :class="cls(s.net)" :title="s.name + ' 净额 ' + fmtLhbAmt(s.net)">
-                {{ s.name }}
-              </router-link>
-            </div>
-          </div>
-        </div>
-      </div>
+
 
       <!-- 每日榜单工具条:快速搜索 + 分类筛选 + 数量统计 -->
       <div class="toolBar">
@@ -752,35 +728,6 @@ onMounted(loadDates);
 .tVal { font-size: 19px; font-family: var(--mono); font-weight: 650; }
 .tgHotTxt { color: #d48806; }
 
-/* ---- 游资动向看板 ---- */
-.flowPanel {
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
-  padding: 12px 16px 14px; margin-bottom: 14px;
-}
-.flowHead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
-.flowTitle { font-size: 13.5px; font-weight: 650; letter-spacing: .04em; }
-.flowTitle::before {
-  content: ""; display: inline-block; width: 3px; height: 11px; border-radius: 2px;
-  background: #d48806; margin-right: 6px; vertical-align: -1px;
-}
-.flowNote { font-size: 11.5px; color: var(--dim); }
-.flowChips { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
-.flowChip {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  padding: 8px 12px; transition: border-color .15s, box-shadow .15s;
-}
-.flowChip:hover { border-color: var(--line-strong); box-shadow: 0 4px 12px rgba(0, 0, 0, .08); }
-.fcTop { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.fcAlias { font-size: 12.5px; cursor: pointer; color: var(--txt); }
-.fcAlias:hover { color: #d48806; }
-.fcAlias .chipArrow { font-style: normal; font-size: 11px; color: var(--dim); margin-left: 2px; }
-.fcNet { font-size: 12px; font-family: var(--mono); font-weight: 650; }
-.fcStocks { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
-.fcStock {
-  font-size: 11px; text-decoration: none; padding: 1px 6px; border-radius: 4px;
-  background: var(--panel-2); opacity: .9;
-}
-.fcStock:hover { text-decoration: underline; opacity: 1; }
 
 /* ---- 工具条 ---- */
 .toolBar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
