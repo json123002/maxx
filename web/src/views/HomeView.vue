@@ -1,5 +1,13 @@
 <template>
   <div class="home">
+    <!-- ===== 顶部行情走马灯情报条 ===== -->
+    <HomeTicker
+      :hot="hot"
+      :watch-rows="watchRows"
+      :stats="stats"
+      :quote="currentQuote"
+    />
+
     <!-- ===== 刊头：日期 + 问候 + 股市箴言（居中） + 数据快照时间 ===== -->
     <header class="mast">
       <div class="mastLeft">
@@ -168,6 +176,7 @@ import { api } from "../api/client";
 import { authState } from "../stores/auth";
 import { fmtN, cls, quoteUrl } from "../utils/format";
 import { version } from "../../package.json";
+import HomeTicker from "../components/HomeTicker.vue";
 
 // 功能入口:客观量化工具矩阵，严守不荐股底线
 const features = [

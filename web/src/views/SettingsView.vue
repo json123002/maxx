@@ -25,12 +25,15 @@ import {
   EyeInvisibleOutlined,
   DeleteOutlined,
   SearchOutlined,
+  CompassOutlined,
+  CheckCircleFilled,
 } from "@ant-design/icons-vue";
 
 import { api, track } from "../api/client";
 import { blackState, removeBlack } from "../stores/blacklist";
 import { authState, logout } from "../stores/auth";
 import { themeMode, toggleTheme } from "../utils/theme";
+import { tickerState, saveTickerPrefs, TICKER_CHANNELS, TICKER_SPEEDS } from "../stores/ticker";
 import ConfirmModal from "../components/ConfirmModal.vue";
 import PwdModal from "../layout/PwdModal.vue";
 
@@ -43,12 +46,14 @@ const router = useRouter();
 const quoteModalOpen = ref(false);
 const blackModalOpen = ref(false);
 const hotkeysModalOpen = ref(false);
+const tickerModalOpen = ref(false);
 const pwdOpen = ref(false);
 
 function openModal(type) {
   if (type === "qsource") quoteModalOpen.value = true;
   else if (type === "blacklist") blackModalOpen.value = true;
   else if (type === "hotkeys") hotkeysModalOpen.value = true;
+  else if (type === "ticker") tickerModalOpen.value = true;
   else if (type === "security") pwdOpen.value = true;
   track("setting_modal_open", type);
 }
@@ -60,6 +65,7 @@ watch(
     if (val === "qsource") quoteModalOpen.value = true;
     else if (val === "blacklist") blackModalOpen.value = true;
     else if (val === "preferences" || val === "hotkeys") hotkeysModalOpen.value = true;
+    else if (val === "ticker") tickerModalOpen.value = true;
     else if (val === "security") pwdOpen.value = true;
   },
   { immediate: true }
@@ -71,10 +77,44 @@ function handleGlobalKeydown(e) {
     if (quoteModalOpen.value) quoteModalOpen.value = false;
     else if (blackModalOpen.value) blackModalOpen.value = false;
     else if (hotkeysModalOpen.value) hotkeysModalOpen.value = false;
+    else if (tickerModalOpen.value) tickerModalOpen.value = false;
   }
 }
 onMounted(() => window.addEventListener("keydown", handleGlobalKeydown));
 onBeforeUnmount(() => window.removeEventListener("keydown", handleGlobalKeydown));
+
+/* ========================================================
+   走马灯控制项与交互
+   ======================================================== */
+const activeChannelsCount = computed(() => {
+  return Object.values(tickerState.channels).filter(Boolean).length;
+});
+
+function toggleTickerEnabled() {
+  tickerState.enabled = !tickerState.enabled;
+  saveTickerPrefs();
+  track("setting_change", "走马灯总开关: " + tickerState.enabled);
+  message.success(tickerState.enabled ? "已开启总览页顶部滚动情报条" : "已关闭总览页顶部滚动情报条");
+}
+
+function setTickerSpeed(spd) {
+  tickerState.speed = spd;
+  saveTickerPrefs();
+  track("setting_change", "走马灯速度: " + spd);
+  message.success("已设定滚动速度");
+}
+
+function toggleTickerChannel(key) {
+  tickerState.channels[key] = !tickerState.channels[key];
+  saveTickerPrefs();
+  track("setting_change", "走马灯频道: " + key + " = " + tickerState.channels[key]);
+}
+
+function toggleTickerHover() {
+  tickerState.hoverPause = !tickerState.hoverPause;
+  saveTickerPrefs();
+  track("setting_change", "走马灯悬停暂停: " + tickerState.hoverPause);
+}
 
 /* ========================================================
    交互设置项 (分段控制器：即点即改即生效)
@@ -499,6 +539,27 @@ onMounted(() => {
             </div>
           </div>
 
+          <!-- 总览页顶部滚动情报条 (即点即改 + 弹窗定制) -->
+          <div class="cardRow clickable" @click="openModal('ticker')">
+            <div class="rowIcon"><CompassOutlined /></div>
+            <div class="rowBody">
+              <div class="rowTitle">
+                <span>总览页顶部滚动情报条 (Live Ticker)</span>
+                <span v-if="tickerState.enabled" class="statusTag green">● 已启用 · {{ activeChannelsCount }} 个频道</span>
+                <span v-else class="statusTag gray">已停用</span>
+              </div>
+              <div class="rowDesc">
+                自定义总览页顶部的实时情报走马灯：大盘核心指数、全市场热度、连板龙头、L2盘口大单、自选与箴言自由组合。
+              </div>
+            </div>
+            <div class="rowRight">
+              <span class="rowStatusText">
+                {{ tickerState.enabled ? `${tickerState.speed === 'slow' ? '平缓' : tickerState.speed === 'fast' ? '紧凑' : '标准'}速度` : '未开启' }}
+              </span>
+              <button class="actionBtn" @click.stop="openModal('ticker')">配置滚动条 ↗</button>
+            </div>
+          </div>
+
           <!-- 主题切换 (即点即改) -->
           <div class="cardRow">
             <div class="rowIcon"><BgColorsOutlined /></div>
@@ -895,6 +956,106 @@ onMounted(() => {
 
             <div class="modalBottom">
               <button class="confirmBtn" @click="hotkeysModalOpen = false">我知道了</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ========================================================
+         居中弹窗 4: 顶部滚动行情情报条配置模态框
+         ======================================================== -->
+    <Teleport to="body">
+      <Transition name="dialog">
+        <div v-if="tickerModalOpen" class="modalBackdrop" @click.self="tickerModalOpen = false">
+          <div class="modalBox tickerModalBox" role="dialog" aria-modal="true" aria-label="顶部滚动行情配置">
+            <div class="modalTop">
+              <div class="modalTitleBox">
+                <h3 class="modalHeading">总览页顶部滚动情报条配置</h3>
+                <p class="modalSubheading">定制总览页顶部的实时情报流，自由开关大盘、热度、龙头、盘口大单等通道。</p>
+              </div>
+              <button class="closeIconBtn" @click="tickerModalOpen = false" aria-label="关闭">
+                <CloseOutlined />
+              </button>
+            </div>
+
+            <div class="modalScrollBody">
+              <!-- 总开关 -->
+              <div class="tickerSectionBox">
+                <div class="tickerSwitchRow">
+                  <div>
+                    <div class="tickerSwitchTitle">启用顶部行情走马灯</div>
+                    <div class="tickerSwitchDesc">在总览页顶部展示平滑无缝滚动的实时盘面情报卡片</div>
+                  </div>
+                  <button
+                    class="segBtn primaryToggle"
+                    :class="{ active: tickerState.enabled }"
+                    @click="toggleTickerEnabled"
+                  >
+                    {{ tickerState.enabled ? "● 运行中" : "已停用" }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- 频道多选 -->
+              <div class="tickerSectionBox">
+                <div class="sectionHeading">
+                  <span>选择轮播频道 (已选 {{ activeChannelsCount }} / {{ TICKER_CHANNELS.length }})</span>
+                </div>
+                <div class="channelGrid">
+                  <div
+                    v-for="ch in TICKER_CHANNELS"
+                    :key="ch.key"
+                    class="channelCard"
+                    :class="{ active: tickerState.channels[ch.key] }"
+                    @click="toggleTickerChannel(ch.key)"
+                  >
+                    <div class="channelCardTop">
+                      <span class="channelBadge" :class="'badge-' + ch.color">{{ ch.badge }}</span>
+                      <span class="channelCheck">
+                        <CheckCircleFilled v-if="tickerState.channels[ch.key]" class="checkIcon" />
+                        <span v-else class="uncheckCircle"></span>
+                      </span>
+                    </div>
+                    <div class="channelTitle">{{ ch.label }}</div>
+                    <div class="channelDesc">{{ ch.desc }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 滚动速度控制 -->
+              <div class="tickerSectionBox">
+                <div class="sectionHeading">
+                  <span>滚动速度调节</span>
+                </div>
+                <div class="segGroup fullWidth">
+                  <button
+                    v-for="spd in TICKER_SPEEDS"
+                    :key="spd.key"
+                    class="segBtn"
+                    :class="{ active: tickerState.speed === spd.key }"
+                    @click="setTickerSpeed(spd.key)"
+                  >
+                    {{ spd.label }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- 交互细节 -->
+              <div class="tickerSectionBox">
+                <div class="sectionHeading">
+                  <span>交互细节</span>
+                </div>
+                <label class="tickerCheckboxRow" @click.prevent="toggleTickerHover">
+                  <input type="checkbox" :checked="tickerState.hoverPause" />
+                  <span>鼠标悬停在走马灯卡片上时自动暂停滚动（方便细看盘口与数值）</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="modalBottom">
+              <span class="safeNote">设置将实时生效并自动保存在当前浏览器</span>
+              <button class="confirmBtn" @click="tickerModalOpen = false">完成设置</button>
             </div>
           </div>
         </div>
@@ -1659,7 +1820,144 @@ onMounted(() => {
   transform: scale(0.98) translateY(4px);
 }
 
+/* 顶部走马灯配置弹窗样式 */
+.tickerModalBox {
+  max-width: 640px;
+}
+.tickerSectionBox {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.tickerSwitchRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tickerSwitchTitle {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--txt);
+}
+.tickerSwitchDesc {
+  font-size: 12px;
+  color: var(--dim);
+  margin-top: 2px;
+}
+.primaryToggle {
+  min-width: 90px;
+  text-align: center;
+  font-weight: 600;
+}
+.primaryToggle.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.channelGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+.channelCard {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.channelCard:hover {
+  border-color: var(--line-strong);
+  background: var(--hover);
+}
+.channelCard.active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.channelCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.channelBadge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--mono);
+}
+.badge-indigo { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+.badge-amber { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+.badge-rose { background: rgba(244, 63, 94, 0.15); color: #fb7185; }
+.badge-cyan { background: rgba(20, 184, 166, 0.15); color: #2dd4bf; }
+.badge-emerald { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+.badge-violet { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+
+.channelCheck {
+  display: flex;
+  align-items: center;
+}
+.checkIcon {
+  color: var(--accent);
+  font-size: 16px;
+}
+.uncheckCircle {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--dim);
+  border-radius: 50%;
+  display: inline-block;
+  opacity: 0.6;
+}
+.channelTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--txt);
+}
+.channelDesc {
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.4;
+}
+.segGroup.fullWidth {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  width: 100%;
+  margin-top: 8px;
+}
+.segGroup.fullWidth .segBtn {
+  text-align: center;
+  justify-content: center;
+}
+.tickerCheckboxRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--txt);
+  cursor: pointer;
+  margin-top: 8px;
+}
+.tickerCheckboxRow input[type=checkbox] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+}
+
 @media (max-width: 640px) {
+  .channelGrid {
+    grid-template-columns: 1fr;
+  }
   .hubHeader {
     flex-direction: column;
     align-items: stretch;
