@@ -36,6 +36,16 @@ export function computeSentiment(rows, idxBars) {
   if (!valid) return null;
   const upRatio = up / valid;
   const limitScore = (limitUp + limitDown) > 0 ? limitUp / (limitUp + limitDown) * 30 : 15;
+  const { volScore, volRatio, volSrc, volNote } = idxVolumeScore(idxBars);
+  const temp = Math.round(upRatio * 40 + limitScore + volScore);
+  // 对称区间：冰点 0-19 / 低迷 20-39 / 中性 40-59 / 活跃 60-79 / 亢奋 80-100
+  const level = temp < 20 ? "冰点" : temp < 40 ? "低迷" : temp < 60 ? "中性" : temp < 80 ? "活跃" : "亢奋";
+  return { temp, level, up, down: valid - up, valid, limitUp, limitDown, bigDown, upRatio, volRatio, volSrc, volNote };
+}
+
+// 量能分量（情绪温度 30 分）：上证指数当日成交额 / 前 5 日均额，盘中按上海交易时段线性外推
+// idxBars 需含 amount；缺失或无数据时按中性 15 分计
+export function idxVolumeScore(idxBars) {
   let volScore = 15, volRatio = null, volSrc = "缺失（按中性计）", volNote = "";
   if (idxBars && idxBars.length > 5) {
     const amts = idxBars.map(b => b.amount).filter(isFinite);
@@ -70,10 +80,7 @@ export function computeSentiment(rows, idxBars) {
       }
     }
   }
-  const temp = Math.round(upRatio * 40 + limitScore + volScore);
-  // 对称区间：冰点 0-19 / 低迷 20-39 / 中性 40-59 / 活跃 60-79 / 亢奋 80-100
-  const level = temp < 20 ? "冰点" : temp < 40 ? "低迷" : temp < 60 ? "中性" : temp < 80 ? "活跃" : "亢奋";
-  return { temp, level, up, down: valid - up, valid, limitUp, limitDown, bigDown, upRatio, volRatio, volSrc, volNote };
+  return { volScore, volRatio, volSrc, volNote };
 }
 
 // 个股情绪特征（日K）：近10日涨停次数、当前连板数

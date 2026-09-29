@@ -176,6 +176,8 @@ import {
 import { api } from "../api/client";
 import { authState } from "../stores/auth";
 import { fmtN, cls, quoteUrl } from "../utils/format";
+import { fetchIndexKline } from "../analysis/data";
+import { idxVolumeScore } from "../analysis/strategies";
 import { version } from "../../package.json";
 import HomeTicker from "../components/HomeTicker.vue";
 
@@ -278,20 +280,23 @@ async function loadWatch() {
 const upPct = computed(() =>
   stats.valid ? Math.round((stats.up / stats.valid) * 1000) / 10 : 50);
 
-// 与筛选页 updateSentiBadge 同口径(量能分量缺失时按中性 15 计)
-function computeSenti(s) {
+// 与筛选页 updateSentiBadge 同口径:上涨占比40 + 涨跌停比30 + 指数量能30(缺失按中性15)
+function computeSenti(s, idx) {
   if (!s.valid) { senti.temp = null; senti.level = ""; return; }
   const upRatio = s.up / s.valid;
   const limitScore = (s.limit_up + s.limit_down) > 0
     ? (s.limit_up / (s.limit_up + s.limit_down)) * 30 : 15;
-  const temp = Math.round(upRatio * 40 + limitScore + 15);
+  const { volScore, volRatio, volSrc, volNote } = idxVolumeScore(idx);
+  const temp = Math.round(upRatio * 40 + limitScore + volScore);
   senti.temp = temp;
   senti.level = temp < 20 ? "冰点" : temp < 40 ? "低迷" : temp < 60 ? "中性" : temp < 80 ? "活跃" : "亢奋";
   senti.lv = temp < 20 ? 1 : temp < 40 ? 2 : temp < 60 ? 3 : temp < 80 ? 4 : 5;
   sentiTitle.value = `市场情绪 ${temp}/100 · ${senti.level}`
     + `\n· 上涨 ${s.up} 家 · 下跌 ${s.down ?? (s.valid - s.up)} 家 · 平盘 ${s.flat ?? "—"} 家`
     + `\n· 涨停 ${s.limit_up} / 跌停 ${s.limit_down}`
-    + "\n· 指数量能:缺失(按中性计)";
+    + (volRatio !== null
+      ? `\n· 指数量能 ${volRatio.toFixed(2)}×5日均额 [${volSrc}]${volNote ? " " + volNote : ""}`
+      : "\n· 指数量能：缺失（按中性计）");
 }
 
 // 活跃精选:仅沪深主板,按 换手45% + 涨幅35% + 量比20% 的秩次综合评分取 TOP6
@@ -323,6 +328,9 @@ async function load() {
     stale.value = !!meta.stale;
     Object.assign(stats, meta.stats, { down: meta.stats.down ?? (meta.stats.valid - meta.stats.up) });
     computeSenti(meta.stats);
+    fetchIndexKline()                       // 再补量能分量(失败则维持中性 15 分)
+      .then((i) => computeSenti(meta.stats, i))
+      .catch(() => {});
     hot.value = pickTopComposite(list.rows || [], 6);
     overlayHotRealtime();
     // 缓存本次结果,下次进页面先渲染缓存(1M 小水管下避免白屏等待)

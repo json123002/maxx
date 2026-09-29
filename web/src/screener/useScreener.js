@@ -6,6 +6,7 @@ import { message } from "ant-design-vue";
 import { apiFetch, track } from "../api/client";
 import { cmpRows, fmtN, rangeVal } from "../utils/format";
 import { fetchIndexKline } from "../analysis/data";
+import { idxVolumeScore } from "../analysis/strategies";
 import {
   addMetric,
   metricDef,
@@ -212,38 +213,7 @@ export function useScreener() {
     const limitScore = (stats.limit_up + stats.limit_down) > 0
       ? stats.limit_up / (stats.limit_up + stats.limit_down) * 30 : 15;
     // 量能分量:与 analysis computeSentiment 同一口径(5日均额比,盘中线性外推)
-    let volScore = 15, volRatio = null, volSrc = "缺失（按中性计）", volNote = "";
-    if (idx && idx.length > 5) {
-      const amts = idx.map((b) => b.amount).filter(isFinite);
-      if (amts.length > 5) {
-        const ma = amts.slice(-6, -1).reduce((s, x) => s + x, 0) / 5;
-        if (ma > 0) {
-          let lastAmt = amts[amts.length - 1];
-          const lastBar = idx[idx.length - 1];
-          const _now = new Date();
-          const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, "0")}-${String(_now.getDate()).padStart(2, "0")}`;
-          const mins = _now.getHours() * 60 + _now.getMinutes();
-          const isWeekday = _now.getDay() % 6 !== 0;
-          let elapsed = -1;
-          if (isWeekday) {
-            if (mins >= 570 && mins < 690) elapsed = mins - 570;
-            else if (mins >= 690 && mins < 780) elapsed = 120;
-            else if (mins >= 780 && mins < 900) elapsed = 120 + (mins - 780);
-          }
-          volSrc = "完整";
-          if (elapsed > 0 && lastBar.date === today) {
-            const ratio = Math.min(1, elapsed / 240);
-            if (ratio > 0.05 && ratio < 0.99) {
-              lastAmt = lastAmt / ratio;
-              volSrc = "盘中外推";
-              volNote = `按 ${elapsed}/240 分钟外推`;
-            }
-          }
-          volRatio = lastAmt / ma;
-          volScore = Math.min(30, Math.max(0, (volRatio - 0.5) * 30));
-        }
-      }
-    }
+    const { volScore, volRatio, volSrc, volNote } = idxVolumeScore(idx);
     const temp = Math.round(upRatio * 40 + limitScore + volScore);
     const level = temp < 20 ? "冰点" : temp < 40 ? "低迷" : temp < 60 ? "中性" : temp < 80 ? "活跃" : "亢奋";
     senti.show = true;
