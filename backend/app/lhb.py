@@ -58,6 +58,37 @@ def _date10(v) -> str:
     return str(v or "")[:10]
 
 
+# ---------- 席位标签 ----------
+# 自动标签:由席位名称确定性推导(机构专用/沪深股通/自营),口径可靠;
+# 游资标签:来自管理员维护的 lhb_famous_seat 网传映射——没有任何公开权威
+# 数据源提供游资席位归属,故一律标注"网传"口径,优先级高于自动标签。
+AUTO_TAGS = (
+    ("机构专用", "机构"),
+    ("沪股通", "北向"),
+    ("深股通", "北向"),
+    ("自营", "自营"),
+)
+
+
+def famous_map(conn) -> dict:
+    """网传游资映射 {dept_name: alias};老库缺表时视为空。"""
+    try:
+        return {r["dept_name"]: r["alias"] for r in conn.execute(
+            "SELECT dept_name, alias FROM lhb_famous_seat").fetchall()}
+    except Exception:  # noqa: BLE001 - sqlite OperationalError(no such table)
+        return {}
+
+
+def tag_of(dept_name: str, famous: dict | None = None) -> dict | None:
+    """席位标签:游资(网传映射) > 机构/北向/自营(名称推导);无标签返回 None。"""
+    if famous and dept_name in famous:
+        return {"tag": "游资", "alias": famous[dept_name], "src": "网传"}
+    for kw, tag in AUTO_TAGS:
+        if kw in dept_name:
+            return {"tag": tag}
+    return None
+
+
 def _get(report: str, date: str, page: int, sort_col: str = None):
     """单页拉取,返回 (rows, pages);空结果返回 ([], 0)。"""
     params = {

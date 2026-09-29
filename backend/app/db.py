@@ -242,7 +242,15 @@ def init_db() -> None:
             updated_at TEXT
         );
 
-        -- 预警中心:规则(每用户上限 50,见 alerts_routes)
+        -- 网传游资席位映射(管理员维护;无任何权威数据源,标注一律带"网传"口径)
+        CREATE TABLE IF NOT EXISTS lhb_famous_seat (
+            dept_name TEXT PRIMARY KEY,
+            alias TEXT NOT NULL,         -- 游资名号,如 "炒股养家"
+            note TEXT DEFAULT "",
+            updated_at TEXT NOT NULL
+        );
+
+        -- 盯盘哨兵:规则(每用户上限 50,见 alerts_routes)
         CREATE TABLE IF NOT EXISTS alert_rule (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -258,7 +266,7 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_alert_rule_enabled ON alert_rule(enabled);
 
-        -- 预警中心:触发事件(冗余 user_id,按用户查事件免 join)
+        -- 盯盘哨兵:触发事件(冗余 user_id,按用户查事件免 join)
         CREATE TABLE IF NOT EXISTS alert_event (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             rule_id INTEGER NOT NULL REFERENCES alert_rule(id) ON DELETE CASCADE,

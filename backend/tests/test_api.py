@@ -1412,6 +1412,56 @@ def test_lhb_fill_outcomes_and_stats(client, monkeypatch):
     assert client.get("/api/lhb/seat/不存在席位", headers=h).status_code == 404
 
 
+def test_lhb_seat_tags(client):
+    """席位标签:名称推导(机构/北向/自营) + 网传游资映射(优先)。"""
+    conn = db.get_conn()
+    famous = lhb.famous_map(conn)
+    assert famous == {}
+    assert lhb.tag_of("机构专用", famous)["tag"] == "机构"
+    assert lhb.tag_of("深股通专用", famous)["tag"] == "北向"
+    assert lhb.tag_of("沪股通专用", famous)["tag"] == "北向"
+    assert lhb.tag_of("测试证券自营部", famous)["tag"] == "自营"
+    assert lhb.tag_of("测试证券上海分公司", famous) is None
+
+    h = login(client, "admin", "admin123")
+    dept = "测试证券上海分公司"
+    # 维护映射:网传游资,优先级高于名称推导
+    r = client.post("/api/lhb/famous", headers=h,
+                    json={"dept_name": dept, "alias": "养家测试", "note": "网传"})
+    assert r.status_code == 201, r.text
+    famous = lhb.famous_map(conn)
+    assert lhb.tag_of(dept, famous) == {"tag": "游资", "alias": "养家测试",
+                                        "src": "网传"}
+    # upsert 覆盖别名
+    r = client.post("/api/lhb/famous", headers=h,
+                    json={"dept_name": dept, "alias": "养家二号"})
+    assert r.status_code == 201
+    assert lhb.famous_map(conn)[dept] == "养家二号"
+    # 映射透传到各查询接口
+    seats = client.get("/api/lhb/stock/600111/seats?date=2026-09-28",
+                       headers=h).json()
+    assert seats["buy"][0]["seat_tag"]["alias"] == "养家二号"
+    assert seats["buy"][1]["seat_tag"] is None
+    st = client.get("/api/lhb/seat/" + dept, headers=h).json()
+    assert st["stat"]["seat_tag"]["tag"] == "游资"
+    lst = client.get("/api/lhb/famous", headers=h).json()["rows"]
+    assert any(x["dept_name"] == dept and x["alias"] == "养家二号" for x in lst)
+
+    # 普通用户可读映射但不可写
+    _mkuser(client, h, "lhb_viewer", "pw123456", role="user")
+    hu = login(client, "lhb_viewer", "pw123456")
+    assert client.get("/api/lhb/famous", headers=hu).status_code == 200
+    assert client.post("/api/lhb/famous", headers=hu,
+                       json={"dept_name": "x证券y营业部", "alias": "z"}
+                       ).status_code == 403
+    assert client.delete("/api/lhb/famous/" + dept, headers=hu).status_code == 403
+
+    r = client.delete("/api/lhb/famous/" + dept, headers=h)
+    assert r.status_code == 200
+    assert lhb.famous_map(conn) == {}
+    assert client.delete("/api/lhb/famous/" + dept, headers=h).status_code == 404
+
+
 # ===== 预警中心 =====
 from datetime import datetime  # noqa: E402
 from app import alerts  # noqa: E402
