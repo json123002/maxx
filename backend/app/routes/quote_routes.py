@@ -3,6 +3,7 @@
 所有 /api/quote/* 需要登录且账号未被禁用。
 返回行保留东财字段名（f12/f14/f2...），与前端现有渲染逻辑零改动兼容。
 """
+from datetime import datetime
 import json
 import math
 import re
@@ -76,6 +77,19 @@ def _parse_metrics(raw):
     return out
 
 
+def _is_call_auction(now: datetime = None) -> bool:
+    """是否处于早盘集合竞价时段 (09:15 - 09:25)。"""
+    try:
+        from zoneinfo import ZoneInfo
+        now = now or datetime.now(ZoneInfo("Asia/Shanghai"))
+    except Exception:
+        now = now or datetime.now()
+    if now.weekday() >= 5:
+        return False
+    mins = now.hour * 60 + now.minute
+    return 9 * 60 + 15 <= mins < 9 * 60 + 25
+
+
 def build_filter_sql(args):
     """筛选 SQL（参数化，可单测）。规则与前端 filtered() 完全对齐。"""
     where, params = ["f2 IS NOT NULL"], []
@@ -85,7 +99,11 @@ def build_filter_sql(args):
     if args["no_st"]:
         where.append("name NOT LIKE '%ST%' AND name NOT LIKE '%退%'")
     if args["no_suspend"]:
-        where.append("f8 > 0")
+        # 集合竞价时段(09:15-09:25)成交未开始、换手均为0，不可用 f8 > 0 过滤，否则会误剔全市场个股
+        if args.get("is_auction"):
+            where.append("f2 IS NOT NULL")
+        else:
+            where.append("f8 > 0")
     for col, lo, hi in (("f8", args["tmin"], args["tmax"]),
                         ("f3", args["cmin"], args["cmax"])):
         if lo is not None:
@@ -141,6 +159,7 @@ def quote_list(
     limit: int = Query(default=5000, ge=1, le=10000),
     user=Depends(current_user),
 ):
+    is_auction = _is_call_auction()
     args = {
         "markets": _parse_markets(markets),
         "tmin": tmin, "tmax": tmax, "cmin": cmin, "cmax": cmax,
@@ -148,6 +167,7 @@ def quote_list(
         "kw": (kw or "").strip() or None,
         "no_st": no_st, "no_suspend": no_suspend,
         "metrics": _parse_metrics(metrics),
+        "is_auction": is_auction,
     }
     where, params = build_filter_sql(args)
     conn = get_conn()
@@ -159,8 +179,9 @@ def quote_list(
         params += bl
     total = conn.execute(
         "SELECT COUNT(*) AS c FROM latest" + where, params).fetchone()["c"]
+    order_col = "ABS(f3) DESC" if is_auction else "f8 DESC"
     rows = conn.execute(
-        "SELECT * FROM latest" + where + " ORDER BY f8 DESC LIMIT ?",
+        f"SELECT * FROM latest{where} ORDER BY {order_col} LIMIT ?",
         (*params, limit),
     ).fetchall()
     meta = _snapshot_meta()

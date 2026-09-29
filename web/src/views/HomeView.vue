@@ -317,7 +317,7 @@ async function load() {
       api("/api/quote/meta"),
       api(`/api/quote/list?markets=${MAIN_BOARD_FS}&limit=40`),
     ]);
-    fetchedAt.value = (meta.fetched_at || "").replace("T", " ").slice(5, 16);
+    fetchedAt.value = (meta.fetched_at || "").replace("T", " ").slice(5, 19);
     source.value = meta.source;
     stale.value = !!meta.stale;
     Object.assign(stats, meta.stats, { down: meta.stats.down ?? (meta.stats.valid - meta.stats.up) });
@@ -363,17 +363,34 @@ try {
   }
 } catch (e) {}
 
-// 交易时段每分钟静默刷新一次
+// 盘中自适应动态刷新：集合竞价 (09:15-09:30) 15 秒快速同步；连续交易时段 30 秒；盘外 60 秒
+function getRefreshMs() {
+  const d = new Date(), mins = d.getHours() * 60 + d.getMinutes();
+  if (d.getDay() % 6 === 0) return 60_000;
+  if (mins >= 555 && mins < 570) return 15_000; // 09:15-09:30 集合竞价
+  if ((mins >= 570 && mins <= 695) || (mins >= 775 && mins <= 905)) return 30_000; // 连续交易时段
+  return 60_000;
+}
+
 let timer = null;
+function scheduleNext() {
+  clearTimeout(timer);
+  const ms = getRefreshMs();
+  timer = setTimeout(async () => {
+    const d = new Date(), mins = d.getHours() * 60 + d.getMinutes();
+    if (d.getDay() % 6 !== 0 && mins >= 555 && mins <= 910) {
+      await Promise.allSettled([load(), loadWatch()]);
+    }
+    scheduleNext();
+  }, ms);
+}
+
 onMounted(() => {
   load();
   loadWatch();
-  timer = setInterval(() => {
-    const d = new Date(), mins = d.getHours() * 60 + d.getMinutes();
-    if (d.getDay() % 6 !== 0 && mins >= 555 && mins <= 910) { load(); loadWatch(); }
-  }, 60_000);
+  scheduleNext();
 });
-onUnmounted(() => clearInterval(timer));
+onUnmounted(() => clearTimeout(timer));
 </script>
 
 <style scoped>

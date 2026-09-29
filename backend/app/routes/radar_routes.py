@@ -239,8 +239,9 @@ def radar_1to2(user=Depends(current_user)):
             board = _board_hist(hd, t1)
 
         f18 = t["f18"] or _prev_close(hd, t0)
-        open_pct = ((t["f17"] - f18) / f18 * 100
-                    if t["f17"] and f18 else None)
+        open_px = t["f17"] if (t["f17"] and t["f17"] > 0) else t["f2"]
+        open_pct = (((open_px - f18) / f18 * 100) if (open_px and f18)
+                    else (t["f3"] if t["f3"] is not None else None))
         amt_ratio = (t["f6"] / y["y_amt"] if t["f6"] and y["y_amt"] else None)
         main_net_yi = (t["f62"] / 1e8 if t["f62"] is not None else None)
         ref = t["f350"] or t["f2"]  # 距前高以今日涨停价衡量（打板视角）

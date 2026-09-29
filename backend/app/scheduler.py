@@ -3,6 +3,8 @@ import logging
 import threading
 from datetime import datetime
 
+import time
+
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from . import config, db, fetcher, thsflow
@@ -11,6 +13,15 @@ log = logging.getLogger("scheduler")
 _lock = threading.Lock()
 _sched = None
 _fail_streak = 0   # 主备源连续失败次数（用于退避降频）
+_last_em_fail = 0.0  # 东财主源最近失败时间戳
+
+
+def _now_shanghai() -> datetime:
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Shanghai"))
+    except Exception:
+        return datetime.now()
 
 
 def _is_trading_time(now: datetime) -> bool:
@@ -21,12 +32,20 @@ def _is_trading_time(now: datetime) -> bool:
 
 
 def _fetch_rows():
-    """主源(东财)失败自动切腾讯兜底;都失败抛异常由 fetch_job 记录。"""
-    try:
-        return fetcher.fetch_snapshot()
-    except Exception as e:  # noqa: BLE001 - 主源故障,尝试兜底源
-        log.warning("eastmoney fetch failed: %s; trying tencent fallback", e)
-        return fetcher.fetch_snapshot_tx(db.latest_static())
+    """主源(东财)失败自动切腾讯兜底;若东财刚故障/封禁则短时间内直走腾讯,
+    避免竞价等高频时段因反复尝试东财而阻塞或超时。都失败抛异常由 fetch_job 记录。"""
+    global _last_em_fail
+    now_ts = time.time()
+    # 东财失败后 90 秒内直接走快速腾讯兜底，每 90 秒探活一次东财
+    if now_ts - _last_em_fail > 90:
+        try:
+            res = fetcher.fetch_snapshot()
+            _last_em_fail = 0.0
+            return res
+        except Exception as e:
+            _last_em_fail = now_ts
+            log.warning("eastmoney fetch failed: %s; switching to fast tencent fallback", e)
+    return fetcher.fetch_snapshot_tx(db.latest_static())
 
 
 def fetch_job(force: bool = False) -> bool:
@@ -36,7 +55,8 @@ def fetch_job(force: bool = False) -> bool:
     既给封禁类故障留解封时间,也避免无效请求持续打满日志。
     """
     global _fail_streak
-    if not force and not _is_trading_time(datetime.now()):
+    now = _now_shanghai()
+    if not force and not _is_trading_time(now):
         return False
     if not force and _fail_streak >= 10:
         _fail_streak += 1
@@ -60,7 +80,7 @@ def fetch_job(force: bool = False) -> bool:
 
 
 def history_job() -> None:
-    now = datetime.now()
+    now = _now_shanghai()
     if now.weekday() >= 5:
         return
     # 收盘后先补抓一次再落库，保证 history 是收盘价
@@ -92,6 +112,34 @@ def start() -> None:
     if _sched:
         return
     _sched = BackgroundScheduler(timezone="Asia/Shanghai")
+    # 集合竞价时段高频调度：周一至周五 09:15-09:25 每 30 秒抓取一次撮合快照
+    _sched.add_job(
+        fetch_job, "cron", day_of_week="mon-fri",
+        hour=9, minute="15-25", second="0,30",
+        id="auction_fetch", max_instances=1, coalesce=True
+    )
+    # 关键时点准点保底触发（规避 interval 启动时间漂移错过开盘与关键撮合时点）
+    _sched.add_job(
+        fetch_job, "cron", day_of_week="mon-fri",
+        hour=9, minute=15, second=2, id="milestone_0915", max_instances=1, coalesce=True
+    )
+    _sched.add_job(
+        fetch_job, "cron", day_of_week="mon-fri",
+        hour=9, minute=20, second=2, id="milestone_0920", max_instances=1, coalesce=True
+    )
+    _sched.add_job(
+        fetch_job, "cron", day_of_week="mon-fri",
+        hour=9, minute=25, second=2, id="milestone_0925", max_instances=1, coalesce=True
+    )
+    _sched.add_job(
+        fetch_job, "cron", day_of_week="mon-fri",
+        hour=9, minute=30, second=2, id="milestone_0930", max_instances=1, coalesce=True
+    )
+    _sched.add_job(
+        fetch_job, "cron", day_of_week="mon-fri",
+        hour=13, minute=0, second=2, id="milestone_1300", max_instances=1, coalesce=True
+    )
+    # 交易时段常规轮询（默认每 3 分钟）
     _sched.add_job(fetch_job, "interval", minutes=config.FETCH_INTERVAL_MIN,
                    id="fetch", max_instances=1, coalesce=True)
     # 同花顺盘口异动:事件流滚动 200 条仅覆盖约 5 秒,需 5 秒高频轮询才能采全
