@@ -102,7 +102,6 @@ BUILTIN_FAMOUS = (
     (("财通证券", "温岭中华路"), "温岭帮"),
     (("华泰证券", "厦门厦禾路"), "厦门帮"),
     (("中金财富", "宋庄路"), "北京帮"),
-    (("东方财富证券", "拉萨"), "拉萨天团"),
 )
 
 
@@ -116,9 +115,13 @@ def famous_map(conn) -> dict:
 
 
 def tag_of(dept_name: str, famous: dict | None = None) -> dict | None:
-    """席位标签:管理员游资映射 > 内置网传游资名单 > 机构/北向/自营(名称推导);无标签返回 None。"""
+    """席位标签:管理员游资映射 > 拉萨天团(散户大本营) > 内置网传游资名单 > 机构/北向/自营;无标签返回 None。"""
     if famous and dept_name in famous:
         return {"tag": "游资", "alias": famous[dept_name], "src": "网传"}
+    # 拉萨天团:东方财富拉萨及西藏分支营业部(散户大本营,独立于游资标签)
+    if ("东方财富" in dept_name or "西藏东方财富" in dept_name or "东财" in dept_name) and \
+       ("拉萨" in dept_name or "山南香曲" in dept_name):
+        return {"tag": "拉萨", "alias": "拉萨天团", "src": "散户"}
     for kws, alias in BUILTIN_FAMOUS:
         if all(k in dept_name for k in kws):
             return {"tag": "游资", "alias": alias, "src": "网传"}

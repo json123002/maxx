@@ -44,20 +44,39 @@ function fmtLhbAmt(v) {
 }
 
 /* ---------- 席位标签 ---------- */
-const TAG_CLS = { "游资": "tgHot", "机构": "tgInst", "北向": "tgNorth", "自营": "tgProp" };
+const TAG_CLS = {
+  "游资": "tgHot",
+  "机构": "tgInst",
+  "北向": "tgNorth",
+  "拉萨": "tgLhasa",
+  "自营": "tgProp",
+};
 const tagCls = (t) => TAG_CLS[t?.tag] || "tgProp";
-const tagText = (t) => (t ? (t.alias ? `${t.tag}·${t.alias}` : t.tag) : "");
-const tagTitle = (t) => (t?.src === "网传" ? "网传游资席位(公开社区整理,仅供参考)" : "按席位名称推导");
+const tagText = (t) => {
+  if (!t) return "";
+  if (t.tag === "拉萨") return "拉萨天团";
+  return t.alias ? `${t.tag}·${t.alias}` : t.tag;
+};
+const tagTitle = (t) => {
+  if (t?.tag === "拉萨") return "东方财富拉萨席位(散户大本营)";
+  if (t?.src === "网传") return "网传知名游资席位(仅供参考)";
+  return "按席位名称推导";
+};
 
-/* 行级席位徽标:游资别名优先,其余按 机构/北向/自营 计数 */
+/* 行级席位徽标:游资别名优先,其余按 机构/北向/拉萨/自营 计数 */
 function seatBadges(tags, side) {
   if (!tags) return [];
   const out = [];
   const aliases = side === "buy" ? tags.buy_aliases : tags.sell_aliases;
   for (const a of aliases || []) out.push({ text: a, cls: "tgHot" });
   const counts = (side === "buy" ? tags.buy : tags.sell) || {};
-  for (const t of ["机构", "北向", "自营"]) {
-    if (counts[t]) out.push({ text: `${t}×${counts[t]}`, cls: TAG_CLS[t] });
+  for (const t of ["机构", "北向", "拉萨", "自营"]) {
+    if (counts[t]) {
+      const text = t === "拉萨"
+        ? (counts[t] > 1 ? `拉萨天团×${counts[t]}` : "拉萨天团")
+        : `${t}×${counts[t]}`;
+      out.push({ text, cls: TAG_CLS[t] });
+    }
   }
   return out;
 }
@@ -84,6 +103,7 @@ const DAILY_FILTERS = [
   { k: "sell", name: "净卖出" },
   { k: "hot", name: "游资出击" },
   { k: "inst", name: "机构重仓" },
+  { k: "lhasa", name: "拉萨天团" },
 ];
 
 const WD = ["日", "一", "二", "三", "四", "五", "六"];
@@ -121,6 +141,10 @@ const displayRows = computed(() => {
   } else if (dailyFilter.value === "inst") {
     list = list.filter((r) =>
       r.seat_tags?.buy?.["机构"] || r.seat_tags?.sell?.["机构"]
+    );
+  } else if (dailyFilter.value === "lhasa") {
+    list = list.filter((r) =>
+      r.seat_tags?.buy?.["拉萨"] || r.seat_tags?.sell?.["拉萨"]
     );
   }
 
@@ -215,6 +239,7 @@ const TAG_FILTERS = [
   { k: "游资", name: "游资" },
   { k: "机构", name: "机构" },
   { k: "北向", name: "北向" },
+  { k: "拉萨", name: "拉萨天团" },
   { k: "自营", name: "自营" },
 ];
 const seatRowsFiltered = computed(() =>
@@ -787,6 +812,7 @@ tr.hot td:first-child { box-shadow: inset 3px 0 0 #d48806; }
 .tgHot { color: #d48806; background: rgba(212, 136, 6, .12); }
 .tgInst { color: #2f6feb; background: rgba(47, 111, 235, .12); }
 .tgNorth { color: #0e9594; background: rgba(14, 149, 148, .12); }
+.tgLhasa { color: #722ed1; background: rgba(114, 46, 209, .12); }
 .tgProp { color: var(--dim); background: var(--panel-2); }
 /* 行级席位徽标:第一个不带左间距 */
 .seatBadges .tag:first-child { margin-left: 0; }
