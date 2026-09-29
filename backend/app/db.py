@@ -241,6 +241,37 @@ def init_db() -> None:
             co_seats TEXT,               -- JSON: [{dept,n}]
             updated_at TEXT
         );
+
+        -- 预警中心:规则(每用户上限 50,见 alerts_routes)
+        CREATE TABLE IF NOT EXISTS alert_rule (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            code TEXT NOT NULL,
+            name TEXT,
+            rule_type TEXT NOT NULL,     -- 白名单见 alerts.RULE_TYPES
+            threshold REAL,              -- limit_up/limit_open 类可为空
+            enabled INTEGER NOT NULL DEFAULT 1,
+            cooldown_min INTEGER NOT NULL DEFAULT 60,
+            last_fired_at TEXT,
+            fire_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_alert_rule_enabled ON alert_rule(enabled);
+
+        -- 预警中心:触发事件(冗余 user_id,按用户查事件免 join)
+        CREATE TABLE IF NOT EXISTS alert_event (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id INTEGER NOT NULL REFERENCES alert_rule(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL,
+            ts TEXT NOT NULL,
+            code TEXT NOT NULL,
+            name TEXT,
+            rule_type TEXT NOT NULL,
+            price REAL,
+            detail TEXT,
+            read INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_alert_event_user ON alert_event(user_id, id);
         """
     )
     _migrate_quote_cols(conn)

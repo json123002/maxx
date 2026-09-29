@@ -44,6 +44,15 @@
         <span class="hdrTitle">{{ route.meta.title || "" }}</span>
         <span class="hdrNote">{{ hdrNote }}</span>
         <span class="hdrSpacer"></span>
+        <!-- 预警中心铃铛:事件轮询挂在布局层,切标签页(keep-alive)不中断 -->
+        <a-tooltip title="预警中心">
+          <button class="iconBtn alertBell" @click="$router.push('/alerts')">
+            <BellOutlined />
+            <span v-if="alertState.unread" class="alertDot">
+              {{ alertState.unread > 99 ? "99+" : alertState.unread }}
+            </span>
+          </button>
+        </a-tooltip>
         <a-tooltip :title="themeMode === 'light' ? '切换深色' : '切换浅色'">
           <button class="iconBtn" @click="toggleTheme">
             <MoonIcon v-if="themeMode === 'light'" />
@@ -109,15 +118,16 @@
 </template>
 
 <script setup>
-import { ref, computed, h, watch } from "vue";
+import { ref, computed, h, watch, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   DownOutlined, KeyOutlined, LogoutOutlined,
   DashboardOutlined, FundViewOutlined, TeamOutlined, StarOutlined,
   FileTextOutlined, HistoryOutlined, FireOutlined, SettingOutlined, RadarChartOutlined,
-  CrownOutlined, ExperimentOutlined, TrophyOutlined,
+  CrownOutlined, ExperimentOutlined, TrophyOutlined, BellOutlined,
 } from "@ant-design/icons-vue";
 import { authState, logout } from "../stores/auth";
+import { alertState, startAlertPolling, stopAlertPolling } from "../stores/alerts";
 import { api } from "../api/client";
 import { quoteSource, loadQuoteSource, activePersonalSource } from "../stores/quotesource";
 import { themeMode, toggleTheme } from "../utils/theme";
@@ -132,6 +142,10 @@ const pwdOpen = ref(false);
 
 // 顶栏常驻数据来源说明:全市场数据走默认源;配置/公开了行情源时标注个股实时来源
 loadQuoteSource();
+
+// 预警事件轮询挂在布局层:切标签页只是 keep-alive 休眠视图,轮询不中断
+onMounted(startAlertPolling);
+onBeforeUnmount(stopAlertPolling);
 const hdrNote = computed(() => {
   const p = activePersonalSource();
   return "数据源:东方财富(全市场)" + (p ? " + " + p + "(个股实时)" : "")
@@ -153,6 +167,7 @@ const MENUS = [
   ] },
   { path: "/watchlist", title: "我的自选", icon: StarOutlined },
   { path: "/desk", title: "我的工作台", icon: FundViewOutlined },
+  { path: "/alerts", title: "预警中心", icon: BellOutlined },
   { path: "/settings", title: "设置", icon: SettingOutlined },
   { key: "grp-sys", title: "系统管理", icon: SettingOutlined, children: [
     { path: "/admin", title: "用户管理", icon: TeamOutlined, adminOnly: true },
@@ -259,6 +274,14 @@ export default { components: { SunIcon, MoonIcon } };
   transition: color .15s, border-color .15s;
 }
 .iconBtn:hover { color: var(--txt); border-color: var(--line-strong); }
+
+.alertBell { position: relative; }
+.alertDot {
+  position: absolute; top: -6px; right: -8px; min-width: 16px; height: 16px;
+  padding: 0 4px; border-radius: 999px; background: var(--brand-red);
+  color: #fff; font-size: 10px; font-family: var(--mono); line-height: 16px;
+  text-align: center; pointer-events: none;
+}
 
 .userChip {
   display: inline-flex; align-items: center; gap: 8px; cursor: pointer;

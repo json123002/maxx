@@ -7,7 +7,7 @@ import time
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import config, db, fetcher, lhb, thsflow
+from . import alerts, config, db, fetcher, lhb, thsflow
 
 log = logging.getLogger("scheduler")
 _lock = threading.Lock()
@@ -69,6 +69,11 @@ def fetch_job(force: bool = False) -> bool:
         db.replace_latest(rows, source)
         log.info("snapshot updated: %s rows (%s)", len(rows), source)
         _fail_streak = 0
+        # 预警评估随快照节拍走;失败绝不影响抓数主流程
+        try:
+            alerts.evaluate()
+        except Exception:  # noqa: BLE001
+            log.exception("alerts evaluate failed")
         return True
     except Exception as e:  # noqa: BLE001 - 保留旧数据,记录错误
         log.error("snapshot fetch failed: %s", e)

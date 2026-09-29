@@ -1410,3 +1410,151 @@ def test_lhb_fill_outcomes_and_stats(client, monkeypatch):
     assert d["stat"]["appearances"] == 4
     assert len(d["recent"]) >= 2
     assert client.get("/api/lhb/seat/不存在席位", headers=h).status_code == 404
+
+
+# ===== 预警中心 =====
+from datetime import datetime  # noqa: E402
+from app import alerts  # noqa: E402
+
+
+def _admin_id():
+    return db.get_conn().execute(
+        "SELECT id FROM users WHERE username='admin'").fetchone()["id"]
+
+
+def _mk_rule(rule_type, code="600001", threshold=None, cooldown=60, user_id=None):
+    with db.get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO alert_rule"
+            " (user_id, code, name, rule_type, threshold, cooldown_min, created_at)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (user_id or _admin_id(), code, "测试钢铁", rule_type, threshold,
+             cooldown, datetime.now().isoformat(timespec="seconds")))
+    return cur.lastrowid
+
+
+def test_alerts_eval_window():
+    assert alerts._in_eval_window(datetime(2026, 9, 29, 10, 0)) is True    # 周二盘中
+    assert alerts._in_eval_window(datetime(2026, 9, 29, 9, 20)) is False   # 竞价前半段不评估
+    assert alerts._in_eval_window(datetime(2026, 9, 29, 15, 10)) is False
+    assert alerts._in_eval_window(datetime(2026, 9, 27, 10, 0)) is False   # 周日
+
+
+def test_alert_rule_crud(client):
+    h = login(client, "admin", "admin123")
+    assert client.get("/api/alerts/rules").status_code == 401
+    # 校验:坏代码 / 坏类型 / 缺阈值 / 不存在的股票
+    assert client.post("/api/alerts/rules", headers=h,
+                       json={"code": "60001", "rule_type": "price_above",
+                             "threshold": 9}).status_code == 422
+    assert client.post("/api/alerts/rules", headers=h,
+                       json={"code": "600001", "rule_type": "magic"}).status_code == 400
+    assert client.post("/api/alerts/rules", headers=h,
+                       json={"code": "600001",
+                             "rule_type": "price_above"}).status_code == 400
+    assert client.post("/api/alerts/rules", headers=h,
+                       json={"code": "699999", "rule_type": "price_above",
+                             "threshold": 9}).status_code == 400
+    # 正常创建(limit_up 无需阈值)
+    r = client.post("/api/alerts/rules", headers=h,
+                    json={"code": "600001", "rule_type": "price_above",
+                          "threshold": 9.5})
+    assert r.status_code == 201, r.text
+    rid = r.json()["id"]
+    rows = client.get("/api/alerts/rules", headers=h).json()["rows"]
+    assert any(x["id"] == rid and x["name"] == "测试钢铁" for x in rows)
+    # 更新:改阈值/停用
+    assert client.patch(f"/api/alerts/rules/{rid}", headers=h,
+                        json={"threshold": 9.0, "enabled": False}).status_code == 200
+    row = [x for x in client.get("/api/alerts/rules", headers=h).json()["rows"]
+           if x["id"] == rid][0]
+    assert row["threshold"] == 9.0 and row["enabled"] == 0
+    # limit 类规则拒绝阈值更新
+    r2 = client.post("/api/alerts/rules", headers=h,
+                     json={"code": "600001", "rule_type": "limit_up"})
+    assert client.patch(f"/api/alerts/rules/{r2.json()['id']}", headers=h,
+                        json={"threshold": 1}).status_code == 400
+    # 删除
+    assert client.delete(f"/api/alerts/rules/{rid}", headers=h).status_code == 200
+    assert not any(x["id"] == rid
+                   for x in client.get("/api/alerts/rules", headers=h).json()["rows"])
+    assert client.delete(f"/api/alerts/rules/{rid}", headers=h).status_code == 404
+
+
+def test_alert_rule_cap_and_isolation(client, monkeypatch):
+    h = login(client, "admin", "admin123")
+    conn = db.get_conn()
+    cnt = conn.execute("SELECT COUNT(*) AS c FROM alert_rule WHERE user_id=?",
+                       (_admin_id(),)).fetchone()["c"]
+    monkeypatch.setattr("app.routes.alerts_routes.MAX_RULES_PER_USER", cnt + 1)
+    assert client.post("/api/alerts/rules", headers=h,
+                       json={"code": "600001", "rule_type": "pct_above",
+                             "threshold": 5}).status_code == 201
+    assert client.post("/api/alerts/rules", headers=h,
+                       json={"code": "600001", "rule_type": "pct_above",
+                             "threshold": 6}).status_code == 400   # 达到上限
+
+    # 跨用户隔离:新用户看不到也动不了 admin 的规则
+    r = client.post("/api/admin/users", headers=h,
+                    json={"username": "alertu", "password": "pw123456", "role": "user"})
+    uid = r.json()["id"]
+    hb = login(client, "alertu", "pw123456")
+    admin_rule = client.get("/api/alerts/rules", headers=h).json()["rows"][0]
+    assert client.get("/api/alerts/rules", headers=hb).json()["rows"] == []
+    assert client.delete(f"/api/alerts/rules/{admin_rule['id']}",
+                         headers=hb).status_code == 404
+    client.delete(f"/api/admin/users/{uid}", headers=h)
+
+
+def test_alerts_evaluate_and_events(client, monkeypatch):
+    monkeypatch.setattr(alerts, "_in_eval_window", lambda n: True)
+    now = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+    db.replace_latest(SAMPLE, "实时行情")   # 保证快照新鲜且 ok=1
+    conn = db.get_conn()
+    conn.execute("DELETE FROM alert_event")
+    conn.execute("DELETE FROM alert_rule")
+    conn.commit()
+    alerts._prev_limit.clear()
+
+    rid_price = _mk_rule("price_above", threshold=9.5)   # f2=10.0 命中
+    rid_limit = _mk_rule("limit_up")                     # SAMPLE 600001 封板中
+    rid_open = _mk_rule("limit_open")                    # 首轮不触发(无封板前态)
+
+    n1 = alerts.evaluate(now=now)
+    assert n1 == 2   # price_above + limit_up
+    evs = [dict(r) for r in conn.execute(
+        "SELECT * FROM alert_event ORDER BY id").fetchall()]
+    assert {e["rule_id"] for e in evs} == {rid_price, rid_limit}
+    assert "10" in evs[0]["detail"]
+
+    # 第二轮:冷却/每日去重,都不重复触发
+    assert alerts.evaluate(now=now) == 0
+
+    # 开板:上一轮 600001 封板状态已记录,解除封板后触发 limit_open
+    conn.execute("UPDATE latest SET limit_up = 0, f2 = 9.8 WHERE code = '600001'")
+    conn.commit()
+    assert alerts.evaluate(now=now) == 1
+    ev = conn.execute("SELECT * FROM alert_event WHERE rule_id = ?",
+                      (rid_open,)).fetchone()
+    assert ev and "涨停打开" in ev["detail"]
+
+    # 陈旧快照不评估
+    db.replace_latest([], "", error="blocked")
+    assert alerts.evaluate(now=now) == 0
+    db.replace_latest(SAMPLE, "实时行情")   # 还原,不影响后续其它测试
+
+    # 事件 API:增量轮询 + 已读 + 归属
+    h = login(client, "admin", "admin123")
+    d = client.get("/api/alerts/events?since_id=0", headers=h).json()
+    assert len(d["events"]) == 3 and d["max_id"] == d["events"][-1]["id"]
+    d2 = client.get(f"/api/alerts/events?since_id={d['max_id']}", headers=h).json()
+    assert d2["events"] == [] and d2["max_id"] == d["max_id"]
+    first_id = d["events"][0]["id"]
+    client.post("/api/alerts/events/read", headers=h, json={"ids": [first_id]})
+    hist = client.get("/api/alerts/events/history", headers=h).json()
+    assert hist["total"] == 3
+    assert [r for r in hist["rows"] if r["id"] == first_id][0]["read"] == 1
+    client.post("/api/alerts/events/read", headers=h, json={"ids": []})   # 全部已读
+    assert all(r["read"] == 1
+               for r in client.get("/api/alerts/events/history",
+                                   headers=h).json()["rows"])

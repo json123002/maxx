@@ -16,7 +16,7 @@ TRACK_ACTIONS = {"screener_run", "stock_view", "analysis_view", "history_view",
                  "radar_view", "ladder_view", "flow_view", "sector_view", "desk_view", "f10_view",
                  "page_view", "setting_change", "setting_modal_open",
                  "neural_stock_analysis", "neural_inference_run", "neural_backtest_run",
-                 "lhb_view"}
+                 "lhb_view", "alerts_view"}
 
 
 class TrackIn(BaseModel):

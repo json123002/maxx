@@ -13,6 +13,7 @@ const COMPONENT_NAME_MAP = {
   "/desk": "MyDeskView",
   "/history": "HistoryView",
   "/lhb": "LhbView",
+  "/alerts": "AlertsView",
   "/settings": "SettingsView",
   "/admin": "AdminView",
   "/logs": "LogView",
