@@ -9,7 +9,7 @@ import { SettingOutlined } from "@ant-design/icons-vue";
 import { api } from "../api/client";
 import { jsonp } from "../utils/jsonp";
 import { cls, fmtN } from "../utils/format";
-import { fetchChanges } from "../desk/desk-data";
+import { fetchChanges, fetchLiveQuotes } from "../desk/desk-data";
 import { tickerState } from "../stores/ticker";
 
 const props = defineProps({
@@ -25,6 +25,7 @@ const router = useRouter();
 const indicesData = ref({ list: [], totalAmt: null });
 const ladderLeaders = ref([]);
 const l2Changes = ref([]);
+const liveQuotes = ref({}); // 实时个股行情映射 code -> { f2, f3, f6, f8 }
 const loading = ref(false);
 
 /* ===== 取数方法 ===== */
@@ -102,9 +103,24 @@ async function loadChanges() {
   } catch (e) {}
 }
 
+// 4. 跑马灯内个股的毫秒级实时价格动态刷新 (热度/龙头/自选)
+async function refreshLiveStockQuotes() {
+  const codes = new Set();
+  for (const h of props.hot) if (h.f12) codes.add(h.f12);
+  for (const l of ladderLeaders.value) if (l.code) codes.add(l.code);
+  for (const w of props.watchRows) if (w.f12) codes.add(w.f12);
+  const codeList = Array.from(codes).slice(0, 30);
+  if (!codeList.length) return;
+  try {
+    const qMap = await fetchLiveQuotes(codeList);
+    liveQuotes.value = { ...liveQuotes.value, ...qMap };
+  } catch (e) {}
+}
+
 async function refreshAll() {
   loading.value = true;
   await Promise.allSettled([loadIndices(), loadLadder(), loadChanges()]);
+  await refreshLiveStockQuotes();
   loading.value = false;
 }
 
@@ -114,6 +130,8 @@ watch(
     tickerState.channels.indices,
     tickerState.channels.ladder,
     tickerState.channels.l2_orders,
+    tickerState.channels.hot,
+    tickerState.channels.watchlist,
   ],
   () => {
     refreshAll();
@@ -158,6 +176,9 @@ const tickerItems = computed(() => {
   // 2. 连板龙头梯队
   if (ch.ladder && ladderLeaders.value.length) {
     for (const lead of ladderLeaders.value) {
+      const lq = liveQuotes.value[lead.code] || {};
+      const curPct = typeof lq.f3 === "number" ? lq.f3 : lead.pct;
+      const curPrice = typeof lq.f2 === "number" ? fmtN(lq.f2) : "";
       items.push({
         id: "lead_" + lead.code,
         type: "ladder",
@@ -166,9 +187,9 @@ const tickerItems = computed(() => {
         name: lead.name,
         code: lead.code,
         val: lead.streak >= 2 ? `${lead.streak}连板` : "首板",
-        pct: typeof lead.pct === "number" ? (lead.pct > 0 ? "+" : "") + lead.pct.toFixed(2) + "%" : "+10%",
-        pctVal: lead.pct ?? 10,
-        extra: lead.industry || "",
+        pct: typeof curPct === "number" ? (curPct > 0 ? "+" : "") + curPct.toFixed(2) + "%" : "+10%",
+        pctVal: curPct ?? 10,
+        extra: (curPrice ? `${curPrice} · ` : "") + (lead.industry || ""),
         clickable: true,
       });
     }
@@ -177,6 +198,10 @@ const tickerItems = computed(() => {
   // 3. 全市场热度活跃股
   if (ch.hot && props.hot.length) {
     for (const h of props.hot.slice(0, 6)) {
+      const lq = liveQuotes.value[h.f12] || {};
+      const curPrice = typeof lq.f2 === "number" ? fmtN(lq.f2) : fmtN(h.f2);
+      const curPct = typeof lq.f3 === "number" ? lq.f3 : h.f3;
+      const curTov = typeof lq.f8 === "number" ? lq.f8 : h.f8;
       items.push({
         id: "hot_" + h.f12,
         type: "hot",
@@ -184,10 +209,10 @@ const tickerItems = computed(() => {
         badgeCls: "badge-hot",
         name: h.f14,
         code: h.f12,
-        val: fmtN(h.f2),
-        pct: typeof h.f3 === "number" ? (h.f3 > 0 ? "+" : "") + fmtN(h.f3) + "%" : "—",
-        pctVal: h.f3,
-        extra: `换手 ${fmtN(h.f8, 1)}%`,
+        val: curPrice,
+        pct: typeof curPct === "number" ? (curPct > 0 ? "+" : "") + fmtN(curPct) + "%" : "—",
+        pctVal: curPct,
+        extra: `换手 ${fmtN(curTov, 1)}%`,
         clickable: true,
       });
     }
@@ -216,6 +241,9 @@ const tickerItems = computed(() => {
   // 5. 重点自选
   if (ch.watchlist && props.watchRows.length) {
     for (const w of props.watchRows.slice(0, 6)) {
+      const lq = liveQuotes.value[w.f12] || {};
+      const curPrice = typeof lq.f2 === "number" ? fmtN(lq.f2) : fmtN(w.f2);
+      const curPct = typeof lq.f3 === "number" ? lq.f3 : w.f3;
       items.push({
         id: "wat_" + w.f12,
         type: "watch",
@@ -223,9 +251,9 @@ const tickerItems = computed(() => {
         badgeCls: "badge-watch",
         name: w.f14,
         code: w.f12,
-        val: fmtN(w.f2),
-        pct: typeof w.f3 === "number" ? (w.f3 > 0 ? "+" : "") + fmtN(w.f3) + "%" : "—",
-        pctVal: w.f3,
+        val: curPrice,
+        pct: typeof curPct === "number" ? (curPct > 0 ? "+" : "") + fmtN(curPct) + "%" : "—",
+        pctVal: curPct,
         clickable: true,
       });
     }
@@ -262,14 +290,23 @@ function onItemClick(item) {
   }
 }
 
+// 盘中高频 12 秒极速差量刷新，盘外休市 45 秒节能刷新
+function isTradingHours() {
+  const d = new Date();
+  if (d.getDay() % 6 === 0) return false;
+  const m = d.getHours() * 60 + d.getMinutes();
+  return (m >= 555 && m <= 695) || (m >= 775 && m <= 905); // 9:15-11:35, 12:55-15:05
+}
+
 let refreshTimer = null;
 onMounted(() => {
   refreshAll();
-  // 盘中定时 30s 轻量刷新
+  const interval = isTradingHours() ? 12_000 : 45_000;
   refreshTimer = setInterval(() => {
     loadIndices();
     loadChanges();
-  }, 30_000);
+    refreshLiveStockQuotes();
+  }, interval);
 });
 
 onUnmounted(() => {
