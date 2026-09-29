@@ -1,5 +1,5 @@
 <script setup>
-/* ===== 预警中心:规则管理 + 触发记录 =====
+/* ===== 盯盘哨兵:规则管理 + 触发记录 =====
    评估在服务端随快照节拍(约 3 分钟)进行;本页只管规则 CRUD 与事件历史。
    浏览器通知权限需用户手势触发,故放在横幅按钮里请求。 */
 import { onMounted, ref } from "vue";
@@ -135,17 +135,17 @@ onMounted(() => {
   <div class="alWrap">
     <!-- 通知权限引导 -->
     <div v-if="alertState.permission === 'default'" class="notifyBanner">
-      开启浏览器通知后,预警触发时即使页面在后台也能收到系统弹窗(需保持本站打开)
+      开启浏览器通知后,哨兵触发时即使页面在后台也能收到系统弹窗(需保持本站打开)
       <button class="btnPrimary" @click="enableNotify">开启通知</button>
     </div>
     <div v-else-if="alertState.permission === 'denied'" class="notifyBanner dim">
-      浏览器通知已被禁用,预警将以站内消息提示;如需系统弹窗请在浏览器站点设置中允许通知
+      浏览器通知已被禁用,哨兵将以站内消息提示;如需系统弹窗请在浏览器站点设置中允许通知
     </div>
 
     <!-- 规则 -->
     <section class="blk">
       <div class="secHead">
-        <span class="secName">预警规则</span>
+        <span class="secName">盯盘规则</span>
         <span class="secNote">交易时段随行情快照评估(约 3 分钟一轮) · 上限 50 条</span>
         <span class="barSpacer"></span>
         <button class="btnPrimary" @click="showCreate = !showCreate">
@@ -199,7 +199,11 @@ onMounted(() => {
                 <router-link class="nameLink" :to="'/stock/' + r.code">{{ r.name }}</router-link>
                 <span class="dimTxt"> {{ r.code }}</span>
               </td>
-              <td class="l">{{ typeName(r.rule_type) }}</td>
+              <td class="l">
+                <span class="typeBadge" :class="{ limit: noThreshold(r.rule_type) }">
+                  {{ typeName(r.rule_type) }}
+                </span>
+              </td>
               <td>{{ r.threshold == null ? "—" : fmtN(r.threshold) }}</td>
               <td>{{ r.cooldown_min }}</td>
               <td>{{ r.fire_count }}</td>
@@ -213,7 +217,7 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
-        <div v-else class="empty">还没有预警规则——点右上角「新建规则」创建第一条</div>
+        <div v-else class="empty">还没有盯盘规则——点右上角「新建规则」创建第一条</div>
       </div>
     </section>
 
@@ -238,7 +242,11 @@ onMounted(() => {
               <td class="l">
                 <router-link class="nameLink" :to="'/stock/' + e.code">{{ e.name }}</router-link>
               </td>
-              <td class="l">{{ typeName(e.rule_type) }}</td>
+              <td class="l">
+                <span class="typeBadge" :class="{ limit: noThreshold(e.rule_type) }">
+                  {{ typeName(e.rule_type) }}
+                </span>
+              </td>
               <td>{{ fmtN(e.price) }}</td>
               <td class="l">{{ e.detail }}</td>
             </tr>
@@ -327,6 +335,11 @@ tr.unread:hover td { background: var(--hover); }
   color: var(--dim); font-size: 11.5px; padding: 2px 10px; cursor: pointer; font-family: inherit;
 }
 .swBtn.on { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+.typeBadge {
+  display: inline-block; font-size: 11px; border-radius: 4px; padding: 1.5px 8px;
+  color: var(--accent); background: var(--accent-dim); white-space: nowrap;
+}
+.typeBadge.limit { color: var(--brand-red); background: var(--up-dim, rgba(224, 49, 73, .1)); }
 .delBtn {
   background: none; border: none; color: var(--dim); font-size: 12px;
   cursor: pointer; font-family: inherit;

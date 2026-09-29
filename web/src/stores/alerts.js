@@ -1,5 +1,5 @@
-/* ===== 预警中心状态与轮询(watchlist.js 风格模块单例)=====
-   轮询挂在 MainLayout(而非 AlertsView),保证切标签页(keep-alive 休眠)时预警照收;
+/* ===== 盯盘哨兵状态与轮询(watchlist.js 风格模块单例)=====
+   轮询挂在 MainLayout(而非 AlertsView),保证切标签页(keep-alive 休眠)时哨兵照收;
    事件到达 → antd toast + 浏览器 Notification(已授权时)。 */
 import { reactive } from "vue";
 import { message } from "ant-design-vue";

@@ -1,4 +1,4 @@
-"""预警中心:规则 CRUD + 触发事件查询(评估在 app/alerts.py,随快照节拍)。"""
+"""盯盘哨兵:规则 CRUD + 触发事件查询(评估在 app/alerts.py,随快照节拍)。"""
 import re
 from datetime import datetime
 

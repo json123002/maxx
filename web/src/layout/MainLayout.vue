@@ -44,8 +44,8 @@
         <span class="hdrTitle">{{ route.meta.title || "" }}</span>
         <span class="hdrNote">{{ hdrNote }}</span>
         <span class="hdrSpacer"></span>
-        <!-- 预警中心铃铛:事件轮询挂在布局层,切标签页(keep-alive)不中断 -->
-        <a-tooltip title="预警中心">
+        <!-- 盯盘哨兵铃铛:事件轮询挂在布局层,切标签页(keep-alive)不中断 -->
+        <a-tooltip title="盯盘哨兵">
           <button class="iconBtn alertBell" @click="$router.push('/alerts')">
             <BellOutlined />
             <span v-if="alertState.unread" class="alertDot">
@@ -167,7 +167,7 @@ const MENUS = [
   ] },
   { path: "/watchlist", title: "我的自选", icon: StarOutlined },
   { path: "/desk", title: "我的工作台", icon: FundViewOutlined },
-  { path: "/alerts", title: "预警中心", icon: BellOutlined },
+  { path: "/alerts", title: "盯盘哨兵", icon: BellOutlined },
   { path: "/settings", title: "设置", icon: SettingOutlined },
   { key: "grp-sys", title: "系统管理", icon: SettingOutlined, children: [
     { path: "/admin", title: "用户管理", icon: TeamOutlined, adminOnly: true },
