@@ -766,10 +766,12 @@ def test_radar_board_streak_with_history_gap(client, monkeypatch):
         1 for r in d["rows"] if r["board"] == 1 and r["verdict"] == "候选")
 
 
-def test_radar_ladder(client):
+def test_radar_ladder(client, monkeypatch):
     """连板天梯榜接口：未登录 401，登录后返回今日涨停阶梯与概览。"""
     assert client.get("/api/radar/ladder").status_code == 401
     h = login(client, "admin", "admin123")
+    monkeypatch.setattr(kline, "get_bars",
+                        lambda code, days=250: [])  # 无日K → 退化 history 口径
     res = client.get("/api/radar/ladder", headers=h)
     assert res.status_code == 200
     data = res.json()
@@ -777,6 +779,45 @@ def test_radar_ladder(client):
     assert "tiers" in data
     assert "tier1" in data["tiers"]
     assert "total_limit_up" in data["summary"]
+
+
+def test_radar_ladder_streak_with_history_gap(client, monkeypatch):
+    """history 断档时,天梯连板数以日K为准,断档两侧的涨停不得拼接:
+    600011 断档前 3 个落库日全涨停(旧 history 口径会拼成 4 连板),但日K
+    显示昨日未涨停 → 真实首板 streak=1;600012 日K确认前两日连续涨停
+    → streak=3。"""
+    from datetime import datetime, timedelta
+    h = login(client, "admin", "admin123")
+    today = datetime.now().date()
+    d = lambda n: (today - timedelta(days=n)).isoformat()
+    fill = [_bar(d(n), 9.0, 0.5) for n in range(25, 5, -1)]  # 20 根非涨停填充
+    bars = {
+        # 日K:昨日(及之前)都未涨停 → 今日是首板
+        "600011": fill + [_bar(d(5), 9.5, 1.0), _bar(d(4), 9.6, 1.0),
+                          _bar(d(3), 9.7, 1.0), _bar(d(2), 9.8, 1.0),
+                          _bar(d(1), 9.9, 1.0)],
+        # 日K:昨日/前日连续涨停 → 今日 3 连板
+        "600012": fill + [_bar(d(5), 9.5, 1.0), _bar(d(4), 9.6, 1.0),
+                          _bar(d(3), 9.7, 1.0), _bar(d(2), 10.67, 10.0),
+                          _bar(d(1), 11.74, 10.0)],
+    }
+    # 模块级共享库:其它用例的票也可能在历史里,日K只覆盖本例两只
+    monkeypatch.setattr(kline, "get_bars",
+                        lambda code, days=250: bars.get(code, []))
+    # history 断档(中间有未落库日):600011 断档前 3 个落库日全涨停
+    for n in (5, 4, 3):
+        _hist(d(n), "600011", "断档假连板", 9.0, 1, f6=3e8)
+    db.replace_latest([
+        _row("600011", "断档假连板", "钢铁", "沪主板", 10.67, 10.0,
+             f350=10.67, f351=8.73, f6=5e8, f62=2e8, f21=50e8),
+        _row("600012", "真三连板", "钢铁", "沪主板", 12.91, 10.0,
+             f350=12.91, f351=10.56, f6=6e8, f62=3e8, f21=60e8),
+    ], "实时行情")
+    data = client.get("/api/radar/ladder", headers=h).json()
+    items = {s["code"]: s for t in data["tiers"].values() for s in t}
+    assert items["600011"]["streak"] == 1   # 日K口径:昨日未涨停,断档不拼接
+    assert items["600012"]["streak"] == 3
+    assert data["summary"]["max_streak"] == 3
 
 
 

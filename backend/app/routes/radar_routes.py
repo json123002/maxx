@@ -139,6 +139,74 @@ def _board_hist(hd, t1):
     return 2 if any(r["trade_date"] == t1 and r["limit_up"] for r in hd) else 1
 
 
+def _prefetch_bars(codes):
+    """并发预取个股日K（缓存命中时只是本地查询，首次约每票一次 HTTP）。"""
+    bars_map = {}
+    with ThreadPoolExecutor(max_workers=KLINE_WORKERS) as ex:
+        for code, bars in zip(codes, ex.map(
+                lambda c: kline.get_bars(c, GENE_DAYS), codes)):
+            bars_map[code] = bars
+    return bars_map
+
+
+def _streak_from_bars(bars, th, end_date):
+    """连板数（日K口径）：end_date 当日已确认涨停（快照/收盘历史），向前数。
+
+    日K含全部真实交易日，history 落库断档不影响连续性。日K未必已含
+    end_date 当日（盘中未刷新），此时当日涨停由调用方确认，从日K末根
+    向前续数；日K末根离 end_date 超过 7 天（陈旧缓存）视为不可用。
+    日K不可用返回 None，由调用方退化 history 口径。
+    """
+    bars = [b for b in bars if b["date"] <= end_date]
+    if len(bars) < KLINE_MIN_BARS:
+        return None
+    if bars[-1]["date"] == end_date:
+        s = _board_streak(bars, th)
+        # 当日涨停是既定前提：日K当日涨幅未及阈值（陈旧/容差）时向前续数
+        return s if s >= 1 else 1 + _board_streak(bars[:-1], th)
+    gap = (datetime.strptime(end_date, "%Y-%m-%d")
+           - datetime.strptime(bars[-1]["date"], "%Y-%m-%d")).days
+    if gap > 7:
+        return None
+    return 1 + _board_streak(bars, th)
+
+
+def _hist_limit_map(conn, codes, dates):
+    """history (code, trade_date) → limit_up 标记；退化口径的原始数据。"""
+    if not codes or not dates:
+        return {}
+    marks = ",".join("?" * len(codes))
+    date_marks = ",".join("?" * len(dates))
+    rows = conn.execute(
+        f"SELECT code, trade_date, limit_up FROM history"
+        f" WHERE code IN ({marks}) AND trade_date IN ({date_marks})",
+        [*codes, *dates],
+    ).fetchall()
+    m = defaultdict(dict)
+    for r in rows:
+        m[r["code"]][r["trade_date"]] = r["limit_up"]
+    return m
+
+
+def _streaks_hist(hist_by_code, prior_dates, codes):
+    """退化口径：从 prior_dates 倒数 limit_up 连续天数。
+
+    prior_dates 只是 history 已落库的日期，缺日落库时会把断档两侧的
+    涨停拼成连板（虚高）——仅日K不可用时兜底。
+    """
+    out = {}
+    for c in codes:
+        lu_map = hist_by_code.get(c, {})
+        s = 1
+        for d in prior_dates:
+            if lu_map.get(d) == 1:
+                s += 1
+            else:
+                break
+        out[c] = s
+    return out
+
+
 def _grade_dist(dist):
     """距前高：突破(>=0)或空间足(<=-20%) ✅；阻力区(-12~-4%) ❌；其余 ⚠️。"""
     if dist is None:
@@ -195,11 +263,7 @@ def radar_1to2(user=Depends(current_user)):
                      for c, t in today.items())
 
     # 候选股日K并发预取（缓存命中时只是本地查询，首次约每票一次 HTTP）
-    bars_map = {}
-    with ThreadPoolExecutor(max_workers=KLINE_WORKERS) as ex:
-        for code, bars in zip(codes, ex.map(
-                lambda c: kline.get_bars(c, GENE_DAYS), codes)):
-            bars_map[code] = bars
+    bars_map = _prefetch_bars(codes)
 
     # 退化路径用：history 里的收盘/涨跌停序列（无日K时兜底）
     hist = defaultdict(list)
@@ -289,7 +353,11 @@ def radar_1to2(user=Depends(current_user)):
 
 @router.get("/ladder")
 def radar_ladder(user=Depends(current_user)):
-    """连板天梯榜：全市场涨停梯队、连板高度、昨日真实晋级率与炸板池。"""
+    """连板天梯榜：全市场涨停梯队、连板高度、昨日真实晋级率与炸板池。
+
+    连板数以日K为准（history 落库断档不会把断档两侧涨停拼成假连板）；
+    日K不可用时退化 history 口径兜底。
+    """
     conn = get_conn()
 
     # 1. 确定当前快照基准日期
@@ -326,31 +394,24 @@ def radar_ladder(user=Depends(current_user)):
     ).fetchall()
 
     codes = [r["code"] for r in limit_rows]
-    streaks = {c: 1 for c in codes}
 
-    # 4. 从严格的前序交易日（prior_dates）倒推真实连续连板天数
-    if codes and prior_dates:
-        marks = ",".join("?" * len(codes))
-        date_marks = ",".join("?" * len(prior_dates))
-        hist_rows = conn.execute(
-            f"SELECT code, trade_date, limit_up FROM history"
-            f" WHERE code IN ({marks}) AND trade_date IN ({date_marks})"
-            f" ORDER BY code, trade_date DESC",
-            codes + prior_dates,
-        ).fetchall()
-        hist_by_code = defaultdict(dict)
-        for hr in hist_rows:
-            hist_by_code[hr["code"]][hr["trade_date"]] = hr["limit_up"]
-
-        for c in codes:
-            lu_map = hist_by_code.get(c, {})
-            s = 1
-            for d in prior_dates:
-                if lu_map.get(d) == 1:
-                    s += 1
-                else:
-                    break
+    # 4. 连板数以日K为准（含全部真实交易日，history 落库断档也不失真）；
+    # 日K不可用的票退化 history 口径（断档时可能虚高，仅兜底）
+    bars_map = _prefetch_bars(codes)
+    streaks = {}
+    hist_codes = []
+    for r in limit_rows:
+        c = r["code"]
+        th = LIMIT_PCT.get(r["market"] or "", 9.8)
+        s = _streak_from_bars(bars_map.get(c) or [], th, snapshot_date)
+        if s is None:
+            hist_codes.append(c)
+        else:
             streaks[c] = s
+    if hist_codes:
+        streaks.update(_streaks_hist(
+            _hist_limit_map(conn, hist_codes, prior_dates),
+            prior_dates, hist_codes))
 
     # 格式化单只标的
     def _format_item(r, streak=1):
@@ -392,37 +453,31 @@ def radar_ladder(user=Depends(current_user)):
     if prior_dates:
         y_date = prior_dates[0]
         y_limits = conn.execute(
-            "SELECT code, name FROM history"
+            "SELECT code, name, market FROM history"
             " WHERE trade_date = ? AND limit_up = 1 AND name NOT LIKE '%ST%' AND name NOT LIKE '%退%'",
             (y_date,)
         ).fetchall()
         y_codes = {r["code"]: r["name"] for r in y_limits}
 
         if y_codes:
-            # 统计昨日各标的的连板数（以便分拆 1进2 与 连板接力）
+            # 统计昨日各标的的连板数（以便分拆 1进2 与 连板接力）；
+            # 同样以日K为准，日K不可用的票退化 history 口径
             prior_to_y = prior_dates[1:]
-            y_streaks = {c: 1 for c in y_codes}
-            if prior_to_y:
-                y_list = list(y_codes.keys())
-                ymarks = ",".join("?" * len(y_list))
-                pydmarks = ",".join("?" * len(prior_to_y))
-                y_hist = conn.execute(
-                    f"SELECT code, trade_date, limit_up FROM history"
-                    f" WHERE code IN ({ymarks}) AND trade_date IN ({pydmarks})"
-                    f" ORDER BY code, trade_date DESC",
-                    y_list + prior_to_y,
-                ).fetchall()
-                y_hist_map = defaultdict(dict)
-                for hr in y_hist:
-                    y_hist_map[hr["code"]][hr["trade_date"]] = hr["limit_up"]
-                for c in y_list:
-                    s = 1
-                    for d in prior_to_y:
-                        if y_hist_map[c].get(d) == 1:
-                            s += 1
-                        else:
-                            break
+            y_bars_map = _prefetch_bars(list(y_codes))
+            y_market = {r["code"]: r["market"] for r in y_limits}
+            y_streaks = {}
+            y_hist_codes = []
+            for c in y_codes:
+                th = LIMIT_PCT.get(y_market.get(c) or "", 9.8)
+                s = _streak_from_bars(y_bars_map.get(c) or [], th, y_date)
+                if s is None:
+                    y_hist_codes.append(c)
+                else:
                     y_streaks[c] = s
+            if y_hist_codes:
+                y_streaks.update(_streaks_hist(
+                    _hist_limit_map(conn, y_hist_codes, prior_to_y),
+                    prior_to_y, y_hist_codes))
 
             # 昨日首板池 (y_streak == 1) 与昨日连板池 (y_streak >= 2)
             y_first = {c for c, s in y_streaks.items() if s == 1}
