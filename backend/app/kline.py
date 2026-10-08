@@ -29,9 +29,11 @@ RETRY = 2
 _session = requests.Session()
 _session.trust_env = False
 _session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     "Referer": "https://quote.eastmoney.com/",
+    "Connection": "close",
 })
+_last_fetch = {}
 
 
 def _secid(code: str) -> str:
@@ -141,12 +143,31 @@ def _cached_bars(conn, code: str, days: int) -> list[dict]:
 
 
 def get_bars(code: str, days: int = 250) -> list[dict]:
-    """个股日K（升序）。当天已抓过直接读缓存；否则触网刷新，失败退化陈旧缓存。"""
+    """个股日K（升序）。当天已抓过直接读缓存；若盘中未包含今日K线且开盘后则允许适度刷新。"""
     conn = db.get_conn()
-    today = datetime.now().date().isoformat()
+    now = datetime.now()
+    today = now.date().isoformat()
     meta = conn.execute(
         "SELECT fetched_date FROM kline_meta WHERE code = ?", (code,)).fetchone()
-    if not (meta and meta["fetched_date"] == today):
+
+    # 检查本地已缓存的最后一条 K 线日期
+    last_row = conn.execute(
+        "SELECT MAX(date) FROM kline WHERE code = ?", (code,)).fetchone()
+    last_date = last_row[0] if last_row else None
+
+    # 是否满足"无需网络请求"：
+    # 1. 已有今日 K 线
+    # 2. 或当天已抓过且当前是非交易时段（周末、或收盘 15:05 后）
+    is_after_market = (now.hour > 15) or (now.hour == 15 and now.minute >= 5)
+    is_weekend = now.weekday() >= 5
+    is_fresh = (last_date == today) or (meta and meta["fetched_date"] == today and (is_after_market or is_weekend))
+
+    # 盘中流控：若无今日K线，且距离上次抓取不到 60 秒，则暂不重复触网
+    now_ts = time.time()
+    throttled = (now_ts - _last_fetch.get(code, 0)) < 60
+
+    if not is_fresh and not throttled:
+        _last_fetch[code] = now_ts
         try:
             bars = _fetch_remote(code, days)
         except Exception:  # noqa: BLE001 — 退化到陈旧缓存

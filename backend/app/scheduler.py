@@ -84,9 +84,44 @@ def fetch_job(force: bool = False) -> bool:
         _lock.release()
 
 
+def is_market_trading_day(now: datetime) -> bool:
+    """严格核对今日是否为交易所真实交易日（排除周末、法定节假日休市与临时停市）。
+    通过核对上证指数行情时间戳判断，休市日行情时间戳停留在上个交易日。"""
+    if now.weekday() >= 5:
+        return False
+    today_str = now.strftime("%Y%m%d")
+    import requests
+    # 优先核对腾讯行情时间戳 parts[30]
+    try:
+        r = requests.get("https://qt.gtimg.cn/q=sh000001", timeout=5)
+        for line in r.text.split(";"):
+            if "sh000001" in line:
+                parts = line.split("~")
+                if len(parts) > 30 and parts[30]:
+                    return parts[30][:8] == today_str
+    except Exception as e:
+        log.warning("trading day check (tx) failed: %s", e)
+    # 备用：东财上证指数行情时间戳 f86
+    try:
+        r = requests.get(
+            "http://push2delay.eastmoney.com/api/qt/stock/get?secid=1.000001&fields=f86",
+            timeout=5,
+        )
+        f86 = (r.json() or {}).get("data", {}).get("f86")
+        if f86:
+            em_date = datetime.fromtimestamp(f86).strftime("%Y%m%d")
+            return em_date == today_str
+    except Exception as e:
+        log.warning("trading day check (em) failed: %s", e)
+    return False
+
+
 def history_job() -> None:
     now = _now_shanghai()
     if now.weekday() >= 5:
+        return
+    if not is_market_trading_day(now):
+        log.info("history skipped for %s: market closed today (holiday or weekend)", now.date())
         return
     # 收盘后先补抓一次再落库，保证 history 是收盘价
     fetch_job(force=True)

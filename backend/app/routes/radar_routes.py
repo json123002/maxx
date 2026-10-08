@@ -149,12 +149,14 @@ def _prefetch_bars(codes):
     return bars_map
 
 
-def _streak_from_bars(bars, th, end_date):
+def _streak_from_bars(bars, th, end_date, prior_date=None):
     """连板数（日K口径）：end_date 当日已确认涨停（快照/收盘历史），向前数。
 
     日K含全部真实交易日，history 落库断档不影响连续性。日K未必已含
     end_date 当日（盘中未刷新），此时当日涨停由调用方确认，从日K末根
-    向前续数；日K末根离 end_date 超过 7 天（陈旧缓存）视为不可用。
+    向前续数；日K末根若在 end_date 之前，若与上一交易日相符（或日历差 <= 15天，
+    涵盖国庆/春节等长假休市），则视为连续并累加历史涨停天数；
+    日K末根离 end_date 超过 15 天且非上一交易日（陈旧缓存/长期停牌）视为不可用。
     日K不可用返回 None，由调用方退化 history 口径。
     """
     bars = [b for b in bars if b["date"] <= end_date]
@@ -164,9 +166,11 @@ def _streak_from_bars(bars, th, end_date):
         s = _board_streak(bars, th)
         # 当日涨停是既定前提：日K当日涨幅未及阈值（陈旧/容差）时向前续数
         return s if s >= 1 else 1 + _board_streak(bars[:-1], th)
+    last_date = bars[-1]["date"]
     gap = (datetime.strptime(end_date, "%Y-%m-%d")
-           - datetime.strptime(bars[-1]["date"], "%Y-%m-%d")).days
-    if gap > 7:
+           - datetime.strptime(last_date, "%Y-%m-%d")).days
+    is_prev = (prior_date and last_date == prior_date) or (gap <= 15)
+    if not is_prev:
         return None
     return 1 + _board_streak(bars, th)
 
@@ -400,10 +404,11 @@ def radar_ladder(user=Depends(current_user)):
     bars_map = _prefetch_bars(codes)
     streaks = {}
     hist_codes = []
+    y_last_date = prior_dates[0] if prior_dates else None
     for r in limit_rows:
         c = r["code"]
         th = LIMIT_PCT.get(r["market"] or "", 9.8)
-        s = _streak_from_bars(bars_map.get(c) or [], th, snapshot_date)
+        s = _streak_from_bars(bars_map.get(c) or [], th, snapshot_date, prior_date=y_last_date)
         if s is None:
             hist_codes.append(c)
         else:
@@ -467,9 +472,10 @@ def radar_ladder(user=Depends(current_user)):
             y_market = {r["code"]: r["market"] for r in y_limits}
             y_streaks = {}
             y_hist_codes = []
+            prior_to_y_last = prior_to_y[0] if prior_to_y else None
             for c in y_codes:
                 th = LIMIT_PCT.get(y_market.get(c) or "", 9.8)
-                s = _streak_from_bars(y_bars_map.get(c) or [], th, y_date)
+                s = _streak_from_bars(y_bars_map.get(c) or [], th, y_date, prior_date=prior_to_y_last)
                 if s is None:
                     y_hist_codes.append(c)
                 else:

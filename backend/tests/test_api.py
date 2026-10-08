@@ -820,6 +820,36 @@ def test_radar_ladder_streak_with_history_gap(client, monkeypatch):
     assert data["summary"]["max_streak"] == 3
 
 
+def test_radar_ladder_long_holiday_gap(client, monkeypatch):
+    """长假休市（如国庆 8 天、春节 10 天）：日K末根离今日超过 7 天，
+    只要是上一交易日或在长假容差期内，连板数应正常承接而非退化。"""
+    from datetime import datetime, timedelta
+    h = login(client, "admin", "admin123")
+    today = datetime.now().date()
+    # 模拟节前最后交易日为 8 天前（国庆节后首日）
+    pre_holiday = (today - timedelta(days=8)).isoformat()
+    d_pre1 = (today - timedelta(days=9)).isoformat()
+    d_pre2 = (today - timedelta(days=10)).isoformat()
+    fill = [_bar((today - timedelta(days=n)).isoformat(), 9.0, 0.5) for n in range(35, 11, -1)]
+    bars = {
+        # 节前 3 连板
+        "600825": fill + [_bar(d_pre2, 8.0, 10.0), _bar(d_pre1, 8.8, 10.0), _bar(pre_holiday, 9.68, 10.0)],
+    }
+    monkeypatch.setattr(kline, "get_bars", lambda code, days=250: bars.get(code, []))
+    # 节前落库
+    _hist(pre_holiday, "600825", "长假连板龙头", 9.68, 1, f6=3e8)
+    # 今日快照（第 4 板）
+    db.replace_latest([
+        _row("600825", "长假连板龙头", "出版", "沪主板", 10.65, 10.0,
+             f350=10.65, f351=8.71, f6=5e8, f62=2e8, f21=50e8),
+    ], "实时行情")
+    data = client.get("/api/radar/ladder", headers=h).json()
+    items = {s["code"]: s for t in data["tiers"].values() for s in t}
+    # 节前 3 连板 + 今日 1 板 = 4 连板，绝不能因超过 7 天误判
+    assert items["600825"]["streak"] == 4
+    assert data["summary"]["max_streak"] == 4
+
+
 
 def test_kline_cache(client, monkeypatch):
     """日K缓存:首次触网落库,当天内重复查询直接读缓存不再触网。"""
