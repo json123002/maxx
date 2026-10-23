@@ -319,33 +319,138 @@ def history_dates(user=Depends(current_user)):
     return {"dates": [r["trade_date"] for r in rows]}
 
 
+ALLOWED_HISTORY_SORT = {
+    "f8": "f8",
+    "f2": "f2",
+    "f3": "f3",
+    "f6": "f6",
+    "f20": "f20",
+    "f12": "code",
+    "code": "code",
+    "f14": "name",
+    "name": "name",
+    "f100": "industry",
+    "industry": "industry",
+    "market": "market",
+}
+
+
 @router.get("/api/quote/history")
-def history_list(date: str = Query(default=""),
-                 kw: str = Query(default="", max_length=32),
-                 limit: int = Query(default=2000, ge=1, le=6000),
-                 user=Depends(current_user)):
-    """某交易日的收盘榜单：按换手率降序 + 当日情绪统计。"""
-    if not _DATE_RE.match(date):
+def history_list(
+    date: str = Query(default=""),
+    kw: str | None = Query(default=None, max_length=32),
+    market: str | None = Query(default=None, max_length=64),
+    pmin: float | None = None,
+    pmax: float | None = None,
+    cmin: float | None = None,
+    cmax: float | None = None,
+    tmin: float | None = None,
+    tmax: float | None = None,
+    no_st: bool = False,
+    sort_by: str = Query(default="f8"),
+    order: str = Query(default="desc"),
+    limit: int = Query(default=6000, ge=1, le=10000),
+    user=Depends(current_user),
+):
+    """某交易日的收盘榜单：支持板块、股价、涨跌、换手率全维筛选与服务端动态排序。"""
+    raw_date = date.default if hasattr(date, "default") else date
+    if not isinstance(raw_date, str) or not _DATE_RE.match(raw_date):
         raise HTTPException(400, "date 格式须为 YYYY-MM-DD")
+    date_val = raw_date
+
+    raw_kw = kw.default if hasattr(kw, "default") else kw
+    kw_str = (raw_kw or "").strip() if isinstance(raw_kw, str) else ""
+
+    raw_market = market.default if hasattr(market, "default") else market
+    market_str = (raw_market or "").strip() if isinstance(raw_market, str) else ""
+
+    raw_sort = sort_by.default if hasattr(sort_by, "default") else sort_by
+    sort_str = str(raw_sort or "f8")
+
+    raw_order = order.default if hasattr(order, "default") else order
+    order_str = str(raw_order or "desc")
+
+    raw_limit = limit.default if hasattr(limit, "default") else limit
+    limit_val = int(raw_limit) if raw_limit is not None and not hasattr(raw_limit, "default") else 6000
+
     conn = get_conn()
-    where, params = " WHERE trade_date = ?", [date]
-    kw = kw.strip()
-    if kw:
-        where += " AND (code LIKE ? OR name LIKE ?)"
-        params += ["%" + kw + "%"] * 2
+    where = ["trade_date = ?"]
+    params = [date_val]
+
+    if kw_str:
+        where.append("(code LIKE ? OR name LIKE ?)")
+        params += ["%" + kw_str + "%"] * 2
+
+    # 板块 / 市场过滤
+    if market_str:
+        mkt_list = []
+        for m in market_str.split(","):
+            m = m.strip()
+            if m == "主板":
+                mkt_list.extend(["沪主板", "深主板"])
+            elif m in {"沪主板", "深主板", "创业板", "科创板", "北交所"}:
+                mkt_list.append(m)
+        if mkt_list:
+            unique_mkts = list(dict.fromkeys(mkt_list))
+            where.append("market IN (" + ",".join("?" for _ in unique_mkts) + ")")
+            params += unique_mkts
+
+    # 股价区间 (f2)
+    if pmin is not None and pmax is not None and pmin > pmax:
+        pmin, pmax = pmax, pmin
+    if pmin is not None:
+        where.append("f2 >= ?")
+        params.append(pmin)
+    if pmax is not None:
+        where.append("f2 <= ?")
+        params.append(pmax)
+
+    # 涨跌幅区间 (f3)
+    if cmin is not None and cmax is not None and cmin > cmax:
+        cmin, cmax = cmax, cmin
+    if cmin is not None:
+        where.append("f3 >= ?")
+        params.append(cmin)
+    if cmax is not None:
+        where.append("f3 <= ?")
+        params.append(cmax)
+
+    # 换手率区间 (f8)
+    if tmin is not None and tmax is not None and tmin > tmax:
+        tmin, tmax = tmax, tmin
+    if tmin is not None:
+        where.append("f8 >= ?")
+        params.append(tmin)
+    if tmax is not None:
+        where.append("f8 <= ?")
+        params.append(tmax)
+
+    # 剔除 ST / 退市
+    if no_st:
+        where.append("name NOT LIKE '%ST%' AND name NOT LIKE '%退%'")
+
+    where_sql = " WHERE " + " AND ".join(where)
     total = conn.execute(
-        "SELECT COUNT(*) AS c FROM history" + where, params).fetchone()["c"]
+        "SELECT COUNT(*) AS c FROM history" + where_sql, params
+    ).fetchone()["c"]
+
+    col = ALLOWED_HISTORY_SORT.get(sort_str, "f8")
+    dir_str = "ASC" if order_str.lower() == "asc" else "DESC"
+    order_sql = f" ORDER BY CASE WHEN {col} IS NULL THEN 1 ELSE 0 END, {col} {dir_str}"
+
     rows = conn.execute(
-        "SELECT * FROM history" + where + " ORDER BY f8 DESC LIMIT ?",
-        (*params, limit)).fetchall()
+        "SELECT * FROM history" + where_sql + order_sql + " LIMIT ?",
+        (*params, limit_val),
+    ).fetchall()
     stats = conn.execute(
         "SELECT COUNT(*) AS valid,"
         " SUM(CASE WHEN f3 > 0 THEN 1 ELSE 0 END) AS up,"
         " SUM(CASE WHEN f3 < 0 THEN 1 ELSE 0 END) AS down,"
         " SUM(CASE WHEN limit_up = 1 THEN 1 ELSE 0 END) AS limit_up,"
         " SUM(CASE WHEN limit_down = 1 THEN 1 ELSE 0 END) AS limit_down"
-        " FROM history WHERE trade_date = ? AND f3 IS NOT NULL", (date,)).fetchone()
-    return {"date": date, "total": total,
+        " FROM history WHERE trade_date = ? AND f3 IS NOT NULL", (date_val,),
+    ).fetchone()
+    return {"date": date_val, "total": total,
             "rows": [_row_to_fkeys(r) for r in rows],
             "stats": {k: (stats[k] or 0)
                       for k in ("valid", "up", "down", "limit_up", "limit_down")}}
