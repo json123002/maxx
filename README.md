@@ -1,5 +1,7 @@
 # maxx · Turnover Screener（前后端分离版）
 
+[English](README.en.md)
+
 A 股换手率筛选器：FastAPI + SQLite 后端定时抓数，静态前端经 `/api` 查询，带登录与管理员用户管理。
 
 ## 结构
@@ -120,3 +122,7 @@ python deploy/verify_frontend.py     # 只读核对线上前端版本及全部�
 
 - 分支、提交、PR、数据库变更规范见 [CONTRIBUTING.md](CONTRIBUTING.md)
 - 漏洞报告与密钥红线见 [SECURITY.md](SECURITY.md)
+
+## License
+
+项目自有代码采用 [MIT License](LICENSE)。第三方依赖、素材与行情数据遵循各自的许可和使用条款。
