@@ -249,9 +249,9 @@ def source_test(sid: int, user=Depends(current_user)):
         return {"ok": True, "latency_ms": ms,
                 "sample": {"code": "000001", "p": s.get("f2"),
                            "pc": s.get("f3"), "hs": s.get("f8"), "t": s.get("t")}}
-    except Exception as e:
+    except Exception:
         return {"ok": False, "latency_ms": int((time.monotonic() - t0) * 1000),
-                "error": str(e)[:200]}
+                "error": "行情源请求失败，请检查配置或稍后重试"}
 
 
 def _mkt_suffix(code: str) -> str:
@@ -293,8 +293,8 @@ def quote_intraday(code: str, user=Depends(current_user)):
         data = r.json()
         if not isinstance(data, list):
             raise RuntimeError(str(data)[:120])
-    except Exception as e:
-        raise HTTPException(502, "分时数据获取失败: " + str(e)[:150])
+    except Exception:
+        raise HTTPException(502, "分时数据获取失败，请稍后重试")
     day = max((it.get("t") or "")[:10] for it in data) if data else ""
     bars = [it for it in data if (it.get("t") or "")[:10] == day]
     points = [{"t": (it.get("t") or "")[-8:-3],        # HH:MM
@@ -353,8 +353,8 @@ def quote_realtime(codes: str = Query(default="", max_length=1000),
             rows = _mairui_fetch(src["licence"], codelist)
             source = (PROVIDERS[src["provider"]]["label"] + " · " + src["name"]
                       + ("（公共）" if shared else ""))
-        except Exception as e:
-            error = str(e)[:200]
+        except Exception:
+            error = "行情源请求失败，请检查配置或稍后重试"
     if rows:
         _attach_names(rows)
         by = {r["f12"]: r for r in rows}

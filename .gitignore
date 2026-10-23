@@ -21,3 +21,15 @@ frontend/
 _tmp/
 
 .claude
+# Local secrets and exported data
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.sql
+*.log

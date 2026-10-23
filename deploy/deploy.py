@@ -35,18 +35,18 @@ REMOTE = "/home/maxx/turnover-screener"
 PIP_MIRROR = "https://mirrors.aliyun.com/pypi/simple/"
 
 
-def run(ssh, cmd, check=True):
-    print("$ " + cmd, flush=True)
+def run(ssh, cmd, check=True, sensitive=False):
+    print("$ " + ("[sensitive command]" if sensitive else cmd), flush=True)
     _, out, err = ssh.exec_command(cmd, timeout=600)
     code = out.channel.recv_exit_status()
     o = out.read().decode("utf8", "replace")
     e = err.read().decode("utf8", "replace")
-    if o.strip():
+    if o.strip() and not sensitive:
         print(o.rstrip()[-1500:])
     if e.strip():
         print(e.rstrip()[-800:], file=sys.stderr)
     if check and code != 0:
-        raise RuntimeError("command failed (%s): %s" % (code, cmd))
+        raise RuntimeError("command failed (%s): %s" % (code, "[sensitive command]" if sensitive else cmd))
     return o
 
 
@@ -114,7 +114,7 @@ def main():
         import shlex
         run(ssh, "printf 'TS_ROOT_PASSWORD=%s\\n' > /etc/turnover-screener.env"
                  " && chmod 600 /etc/turnover-screener.env"
-                 % shlex.quote(ROOT_PASSWORD))
+                 % shlex.quote(ROOT_PASSWORD), sensitive=True)
 
     print("== 3. venv + deps (aliyun mirror) ==")
     run(ssh, "cd %s/backend && python3.11 -m venv venv && "

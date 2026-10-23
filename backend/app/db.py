@@ -371,6 +371,8 @@ def seed_admin(hash_password) -> None:
     n = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
     if n:
         return
+    if not config.ADMIN_PASSWORD:
+        raise RuntimeError("Set TS_ADMIN_PASSWORD before initializing a new installation")
     conn.execute(
         "INSERT INTO users (username, password_hash, role, enabled, created_at)"
         " VALUES (?, ?, 'admin', 1, ?)",

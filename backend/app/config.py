@@ -6,7 +6,7 @@ DB_PATH = os.environ.get("TS_DB_PATH", os.path.join(BASE_DIR, "data", "screener.
 
 # 初始管理员（仅首次建库时写入；生产部署请用 TS_ADMIN_PASSWORD 覆盖并尽快改密）
 ADMIN_USERNAME = os.environ.get("TS_ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.environ.get("TS_ADMIN_PASSWORD", "admin123")
+ADMIN_PASSWORD = os.environ.get("TS_ADMIN_PASSWORD", "")
 
 # 隐藏 root 账号：拥有全部权限，但对所有人（含 admin）不出现在用户管理列表，
 # 独享 /api/logs 操作日志。密码【不落在代码里】：仅当环境变量 TS_ROOT_PASSWORD

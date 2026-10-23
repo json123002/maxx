@@ -11,7 +11,7 @@ Environment=TZ=Asia/Shanghai
 # 由 deploy.py 部署时按本机环境变量写入(权限 600);不存在时忽略(-前缀)
 EnvironmentFile=-/etc/turnover-screener.env
 # 初始管理员密码（仅首次建库生效），上线后请立即在页面「修改密码」改掉
-Environment=TS_ADMIN_PASSWORD=admin123
+# Set TS_ADMIN_PASSWORD in /etc/turnover-screener.env for first-time setup.
 # 抓数间隔（分钟）
 Environment=TS_FETCH_INTERVAL_MIN=3
 ExecStart=/home/maxx/turnover-screener/backend/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
