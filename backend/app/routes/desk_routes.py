@@ -35,7 +35,8 @@ _session.headers.update({
 
 EMWEB = "https://emweb.securities.eastmoney.com/PC_HSF10"
 F10_TTL = 6 * 3600  # F10 资料按披露节奏变化,缓存 6 小时
-_f10_cache = {}     # code -> (expire_ts, payload)
+F10_CACHE_MAX = 200  # 缓存硬上限:超出逐出最旧条目(LRU),防内存膨胀
+_f10_cache = {}     # code -> (expire_ts, payload)，按插入/最近命中排序
 _f10_lock = threading.Lock()
 
 
@@ -512,6 +513,7 @@ def f10(code: str, user=Depends(current_user)):
     with _f10_lock:
         hit = _f10_cache.get(code)
         if hit and hit[0] > time.time():
+            _f10_cache[code] = _f10_cache.pop(code)  # LRU:命中移到末尾
             return hit[1]
     payload = _fetch_f10(code)
     payload["code"] = code
@@ -521,12 +523,15 @@ def f10(code: str, user=Depends(current_user)):
             or payload["boards"] or payload["execs"]):
         return payload
     with _f10_lock:
+        _f10_cache.pop(code, None)  # 重插到末尾,保持 LRU 顺序
         _f10_cache[code] = (time.time() + F10_TTL, payload)
-        # 防内存膨胀:缓存超过 200 只时清掉过期项
-        if len(_f10_cache) > 200:
+        # 防内存膨胀:先清过期项,仍超硬上限则逐出最旧(未过期也逐出)
+        if len(_f10_cache) > F10_CACHE_MAX:
             now = time.time()
             for k in [k for k, v in _f10_cache.items() if v[0] <= now]:
                 _f10_cache.pop(k, None)
+            while len(_f10_cache) > F10_CACHE_MAX:
+                _f10_cache.pop(next(iter(_f10_cache)), None)
     return payload
 
 

@@ -596,6 +596,37 @@ def test_history_endpoints(client):
                       headers=h).status_code == 400
     assert client.get("/api/quote/history/dates").status_code == 401
 
+    # 新增扩展筛选测试:板块(主板/创业板)、股价范围、ST过滤、动态服务端排序
+    # 1. 板块过滤: "主板" 包含沪主板 + 深主板 (4只)
+    d_mb = client.get("/api/quote/history?date=2026-09-10&market=主板", headers=h).json()
+    assert d_mb["total"] == 4
+    assert all(x["market"] in ("沪主板", "深主板") for x in d_mb["rows"])
+    # 创业板 (1只)
+    d_cyb = client.get("/api/quote/history?date=2026-09-10&market=创业板", headers=h).json()
+    assert d_cyb["total"] == 1 and d_cyb["rows"][0]["f12"] == "300001"
+
+    # 2. 股价范围过滤: 8.0 ~ 15.0 元 (只有 600001 价格 10.0)
+    d_px = client.get("/api/quote/history?date=2026-09-10&pmin=8&pmax=15", headers=h).json()
+    assert d_px["total"] == 1 and d_px["rows"][0]["f12"] == "600001"
+
+    # 3. 剔除 ST
+    d_nost = client.get("/api/quote/history?date=2026-09-10&no_st=true", headers=h).json()
+    assert not any("ST" in x["f14"] for x in d_nost["rows"])
+
+    # 4. 服务端按价格排序 (降序 & 升序, NULLS LAST)
+    d_sort_px_desc = client.get("/api/quote/history?date=2026-09-10&sort_by=f2&order=desc", headers=h).json()
+    pxs = [x["f2"] for x in d_sort_px_desc["rows"] if x["f2"] is not None]
+    assert pxs == [20.0, 10.0, 5.0, 4.4]
+
+    d_sort_px_asc = client.get("/api/quote/history?date=2026-09-10&sort_by=f2&order=asc", headers=h).json()
+    pxs_asc = [x["f2"] for x in d_sort_px_asc["rows"] if x["f2"] is not None]
+    assert pxs_asc == [4.4, 5.0, 10.0, 20.0]
+
+    # 5. 服务端按涨幅排序 (降序)
+    d_sort_chg = client.get("/api/quote/history?date=2026-09-10&sort_by=f3&order=desc", headers=h).json()
+    chgs = [x["f3"] for x in d_sort_chg["rows"] if x["f3"] is not None]
+    assert chgs == [19.98, 10.01, -4.94, -10.02]
+
 
 # ===== 涨停雷达（一进二粗筛） =====
 def _hist(date, code, name, f2, lu, ld=0, f6=None):
