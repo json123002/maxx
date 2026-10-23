@@ -168,3 +168,33 @@ def delete_user(user_id: int, request: Request,
     log_op(admin, "admin_delete_user", target["username"],
            client_ip(request), user_agent(request))
     return {"ok": True}
+
+
+@router.get("/mem")
+def mem_status(admin=Depends(require_admin)):
+    """进程内存与全局缓存占用巡检（定位 RSS 增长/OOM 用）。"""
+    import threading
+
+    from .. import alerts, sysmon, thsflow
+    from . import desk_routes, neural_routes
+
+    with thsflow._lock:
+        ths = {
+            "seen": len(thsflow._seen),
+            "event_codes": len(thsflow._events),
+            "event_rows": sum(len(v) for v in thsflow._events.values()),
+        }
+    with desk_routes._f10_lock:
+        f10_entries = len(desk_routes._f10_cache)
+    return {
+        "rss_mb": sysmon.rss_mb(),
+        "threads": threading.active_count(),
+        "caches": {
+            "f10_entries": f10_entries,
+            "ths_seen": ths["seen"],
+            "ths_event_codes": ths["event_codes"],
+            "ths_event_rows": ths["event_rows"],
+            "alert_prev_limit": len(alerts._prev_limit),
+            "neural_opt_cached": bool(neural_routes._OPT_CACHE["payload"]),
+        },
+    }

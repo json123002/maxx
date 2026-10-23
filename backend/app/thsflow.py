@@ -33,6 +33,10 @@ _seen = set()      # 当日已见 eventId(去重)
 _codes = set()     # 关注股票集合(工作台 ∪ 自选)
 _codes_at = 0.0    # 集合上次刷新时间
 
+# 内存上限保护：本模块状态只活在内存里，须有硬顶（OOM 教训 2026-10-23）。
+SEEN_MAX = 400_000          # 当日去重集合条数上限（实测全市场日事件几十万条）
+EVENTS_PER_CODE_MAX = 300   # 单股当日保留事件条数上限
+
 
 def _watch_codes() -> set:
     """关注股票集合(5 分钟缓存;查库失败沿用旧值)。"""
@@ -86,12 +90,19 @@ def collect_job(force: bool = False) -> bool:
             _events.clear()
             _seen.clear()
         _day = today
+        if len(_seen) > SEEN_MAX:
+            # 防内存无限增长:超限清空去重集合。代价是滚动窗口(约 5 秒)内的
+            # 极近期事件可能重复累积一次,可接受
+            _seen.clear()
         for e in data.get("list") or []:
             eid, code = e.get("eventId"), e.get("stockCode")
             if not eid or code not in watch or eid in _seen:
                 continue
             _seen.add(eid)
-            _events.setdefault(code, []).append({
+            ev = _events.setdefault(code, [])
+            if len(ev) >= EVENTS_PER_CODE_MAX:
+                continue
+            ev.append({
                 "time": e.get("eventTime") or "",
                 "type": e.get("eventName") or "",
                 "value": e.get("eventValue") or "",

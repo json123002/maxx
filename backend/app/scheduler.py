@@ -7,7 +7,7 @@ import time
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import alerts, config, db, fetcher, lhb, thsflow
+from . import alerts, config, db, fetcher, lhb, sysmon, thsflow
 
 log = logging.getLogger("scheduler")
 _lock = threading.Lock()
@@ -195,6 +195,9 @@ def start() -> None:
                    hour=15, minute=20, id="lhb_stats", max_instances=1, coalesce=True)
     _sched.add_job(maintenance_job, "cron", hour=3, minute=30,
                    id="maintenance")
+    # 每小时归还空闲堆内存（glibc arena 不主动还内核，RSS 虚高会触发 OOM 重启）
+    _sched.add_job(sysmon.reclaim, "cron", minute=47, id="mem_reclaim",
+                   kwargs={"job": "hourly"})
     _sched.start()
     # 启动立即抓一次（异步，不阻塞服务启动）
     threading.Thread(target=fetch_job, kwargs={"force": True}, daemon=True).start()

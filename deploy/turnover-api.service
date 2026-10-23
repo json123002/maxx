@@ -19,6 +19,9 @@ Restart=always
 RestartSec=3
 # 内存保护：异常泄漏时自动重启而不是拖垮整机
 MemoryMax=700M
+# glibc 按线程分 arena 缓存空闲堆不归还内核，多线程服务 RSS 会虚高直至
+# 触发上面的 OOM 重启；限制 arena 数可显著降低滞留（配合 sysmon.reclaim）
+Environment=MALLOC_ARENA_MAX=2
 
 [Install]
 WantedBy=multi-user.target

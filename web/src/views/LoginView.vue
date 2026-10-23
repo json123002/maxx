@@ -254,7 +254,12 @@ const handleSubmit = async () => {
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {
-            loginErr.value = data.detail || '登录失败，请检查账号和密码';
+            // 502/504 等网关错误响应体是 nginx 的 HTML，无 JSON detail——
+            // 那是服务不可用/超时（如 OOM 重启中），不能误报成密码错误
+            loginErr.value = data.detail
+                || (resp.status >= 500
+                    ? '服务暂时无响应（可能正在重启），请稍后重试'
+                    : '登录失败，请检查账号和密码');
             return;
         }
         if (rememberMe.value) {
