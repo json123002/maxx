@@ -40,7 +40,7 @@ pnpm build
 
 The development frontend proxies `/api` to the local backend. The frontend build is written to `frontend/`; do not edit generated output manually. See the Chinese README for deployment details.
 
-The documented initial administrator credentials are `admin / admin123`. Change the password immediately before exposing any installation to other users. Never commit credentials, databases, or production logs.
+Set the `TS_ADMIN_PASSWORD` environment variable before first startup. New installations have no default password; existing account passwords are unchanged. Use a strong unique password. Never commit credentials, databases, or production logs.
 
 ## Data and interpretation
 

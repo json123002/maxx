@@ -1043,7 +1043,7 @@ def test_quote_realtime_fallback_and_live(client, monkeypatch):
         raise ConnectionError("mairui down")
     monkeypatch.setattr(sr._mr, "get", boom)
     d = client.get("/api/quote/realtime", headers=h).json()
-    assert d["live"] is False and "mairui down" in d["error"]
+    assert d["live"] is False and d["error"] and "mairui down" not in d["error"]
     assert d["rows"][0]["f2"] == 10.0
 
     # 配额用尽等业务错误（返回非列表体）同样回落
