@@ -19,6 +19,7 @@ frontend/
 # 测试/临时
 .pytest_cache/
 _tmp/
+.local-preview/
 
 .claude
 # Local secrets and exported data
