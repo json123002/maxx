@@ -13,7 +13,7 @@ import { marketState } from "../flow/capital-flow";
 import AnalysisModal from "../analysis/AnalysisModal.vue";
 import ConfirmModal from "../components/ConfirmModal.vue";
 import {
-  fetchLiveQuotes, fetchChanges, fetchMoneyFlow20,
+  fetchLiveQuotes, fetchChanges, fetchMoneyFlow20, fetchTickDetails,
   fetchStars, addStar, removeStar, fetchF10, buildAlerts,
   fetchThsEvents,
   fetchGroups, addGroup, renameGroup, removeGroup,
@@ -732,6 +732,22 @@ const toggleExec = (e) => {
 /* ---------- 大事件提醒 ---------- */
 const selChanges = computed(() =>
   changes.value.filter((c) => c.code === selected.value));
+const tickCache = reactive({});
+const tickRows = computed(() => tickCache[selected.value]?.rows || []);
+const bigMoneyMin = ref(0);
+const bigMoneyRows = computed(() => tickRows.value.filter((c) => c.amount >= bigMoneyMin.value));
+
+async function loadTicks(code, force = false) {
+  const c = tickCache[code];
+  if (!code || c?.loading || (!force && c?.rows)) return;
+  tickCache[code] = { ...c, loading: true, rows: c?.rows || null, error: false };
+  try {
+    const data = await fetchTickDetails(code);
+    tickCache[code] = { ...data, rows: data.rows || [], loading: false, error: false };
+  } catch (e) {
+    tickCache[code] = { ...c, loading: false, rows: c?.rows || null, error: e.message || '成交明细暂不可用' };
+  }
+}
 const alerts = computed(() =>
   buildAlerts(sel.value, selChanges.value, flow20.value));
 

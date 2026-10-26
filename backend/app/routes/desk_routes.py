@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from ..db import get_conn
 from ..oplog import client_ip, log_op, user_agent
 from ..security import current_user
-from .. import thsflow
+from .. import thsflow, ticks
 from .watchlist_routes import LETTER_RE, _fkey_row, _suggest_astock
 
 router = APIRouter(prefix="/api/desk", tags=["desk"])
@@ -533,6 +533,19 @@ def f10(code: str, user=Depends(current_user)):
             while len(_f10_cache) > F10_CACHE_MAX:
                 _f10_cache.pop(next(iter(_f10_cache)), None)
     return payload
+
+
+# ---------- 个股逐笔成交(后端代理,避免浏览器跨域/JSONP兼容问题) ----------
+
+@router.get("/ticks/{code}")
+def desk_ticks(code: str, user=Depends(current_user)):
+    """最近100条供应商成交明细，保留行情日期和来源。"""
+    if not CODE_RE.match(code):
+        raise HTTPException(400, "股票代码须为 6 位数字")
+    try:
+        return ticks.get_ticks(code)
+    except (requests.RequestException, ValueError, TypeError) as exc:
+        raise HTTPException(502, "成交明细数据源暂不可用，请稍后重试") from exc
 
 
 # ---------- 同花顺挂单异动 ----------

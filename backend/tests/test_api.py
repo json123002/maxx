@@ -165,6 +165,23 @@ def test_analysis_context_uses_full_market(client):
     assert d["industry"]["up"] == 0
     assert client.get("/api/quote/context/600003").status_code == 401
     assert client.get("/api/quote/context/999999", headers=h).json()["industry"] is None
+def test_tick_details_metadata_and_errors(client, monkeypatch):
+    from app import ticks
+    h = login(client, "admin", "admin123")
+    payload = {"rows": [{"time": "14:59:00", "amount": 123000}],
+               "trade_date": "2026-10-23", "source": "腾讯成交明细"}
+    monkeypatch.setattr(ticks, "get_ticks", lambda code: payload)
+    assert client.get("/api/desk/ticks/600001", headers=h).json() == payload
+    assert client.get("/api/desk/ticks/invalid", headers=h).status_code == 400
+    assert client.get("/api/desk/ticks/600001").status_code == 401
+    def fail(code):
+        raise ValueError("upstream invalid payload")
+    monkeypatch.setattr(ticks, "get_ticks", fail)
+    r = client.get("/api/desk/ticks/600001", headers=h)
+    assert r.status_code == 502
+    assert "upstream" not in r.text
+
+
 
 
 def test_limit_flags():

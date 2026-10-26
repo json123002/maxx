@@ -64,8 +64,8 @@ export async function fetchChanges() {
     const meta = CHANGE_TYPES[r.t];
     if (!meta || !r.c) continue;
     const a = String(r.i || "").split(",").map(Number);
-    let price = null, pct = null, amount = null;
-    if (MONEY_T.has(r.t)) { price = a[1]; pct = a[2]; amount = a[3]; }
+    let price = null, pct = null, amount = null, volume = null;
+    if (MONEY_T.has(r.t)) { volume = a[0]; price = a[1]; pct = a[2]; amount = a[3]; }
     else if (SEAL_T.has(r.t)) { price = a[0]; pct = a[3]; }
     else if (OPEN_T.has(r.t)) { price = a[0]; pct = a[1]; }
     else if (HILO_T.has(r.t)) { price = a[0]; pct = a[2]; }
@@ -80,9 +80,15 @@ export async function fetchChanges() {
       price,
       pct: Number.isFinite(pct) ? pct * 100 : null,
       amount: Number.isFinite(amount) ? amount : null,
+      volume: Number.isFinite(volume) ? volume : null,
     });
   }
   return rows.sort((x, y) => (x.time < y.time ? 1 : -1));
+}
+
+/* ---------- 个股逐笔成交(最近100笔,时间/成交价/手数/金额/方向) ---------- */
+export async function fetchTickDetails(code) {
+  return api(`/api/desk/ticks/${code}`);
 }
 
 /* ---------- 近 20 日资金流(主力/超大/大/中/小单) ---------- */
