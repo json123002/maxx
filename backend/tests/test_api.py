@@ -530,22 +530,21 @@ def test_sector_strength(client):
     assert isinstance(d["rows"], list)
 
 
-# ===== 登录防爆破限流 =====
-def test_login_rate_limit(client):
-    # 用独立 IP + 独立用户名，不影响套件里 admin 的正常登录
+# ===== 登录失败不锁定账号或 IP =====
+def test_login_failures_do_not_lock_out(client):
     h = {"X-Forwarded-For": "198.51.100.9"}
-    for _ in range(10):
+    for _ in range(12):
         r = client.post("/api/auth/login", headers=h,
-                        json={"username": "brute", "password": "x"})
+                        json={"username": "admin", "password": "x"})
         assert r.status_code == 401
-    # 第 11 次触发 429;同 IP 换一个用户名也被限(IP 维度)
+    # 连续输错后，同一账号和 IP 使用正确密码仍能立即登录。
     r = client.post("/api/auth/login", headers=h,
-                    json={"username": "brute", "password": "x"})
-    assert r.status_code == 429
+                    json={"username": "admin", "password": "admin123"})
+    assert r.status_code == 200
     r = client.post("/api/auth/login", headers=h,
                     json={"username": "other", "password": "x"})
-    assert r.status_code == 429
-    # 不同 IP 的正常用户不受影响
+    assert r.status_code == 401
+    # 不同 IP 的正常用户也可登录。
     r = client.post("/api/auth/login", headers={"X-Forwarded-For": "198.51.100.10"},
                     json={"username": "admin", "password": "admin123"})
     assert r.status_code == 200
