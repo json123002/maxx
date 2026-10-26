@@ -147,6 +147,10 @@ class StockIn(BaseModel):
     code: str = Field(min_length=6, max_length=6)
 
 
+class DeskStockIn(StockIn):
+    group_id: int | None = Field(default=None, gt=0)
+
+
 class StockOrderIn(BaseModel):
     codes: list[str] = Field(min_length=1, max_length=500)
 
@@ -166,7 +170,7 @@ def desk_stock_list(user=Depends(current_user)):
 
 
 @router.post("/stocks")
-def desk_stock_add(body: StockIn, request: Request, user=Depends(current_user)):
+def desk_stock_add(body: DeskStockIn, request: Request, user=Depends(current_user)):
     """添加股票到工作台：code 必须存在于行情快照（防脏数据）；重复添加幂等。"""
     code = body.code.strip()
     if not CODE_RE.match(code):
@@ -177,13 +181,23 @@ def desk_stock_add(body: StockIn, request: Request, user=Depends(current_user)):
     if not row:
         raise HTTPException(404, "未找到该股票（可能已退市或代码有误）")
     with conn:
+        # 先检查分组归属；股票池与分组成员必须在同一事务中写入。
+        group = _own_group(body.group_id, user["id"]) if body.group_id is not None else None
         conn.execute(
             "INSERT OR IGNORE INTO desk_stock (user_id, code, name, created_at)"
             " VALUES (?, ?, ?, ?)",
             (user["id"], code, row["name"],
              datetime.now().isoformat(timespec="seconds")))
+        if group:
+            conn.execute(
+                "INSERT OR IGNORE INTO desk_group_item"
+                " (group_id, user_id, code, created_at) VALUES (?, ?, ?, ?)",
+                (body.group_id, user["id"], code, datetime.now().isoformat(timespec="seconds")))
     log_op(user, "desk_stock_add", "%s %s" % (code, row["name"]),
            client_ip(request), user_agent(request))
+    if group:
+        log_op(user, "desk_gitem_add", "「%s」%s %s" % (group["name"], code, row["name"]),
+               client_ip(request), user_agent(request))
     return {"ok": True, "code": code, "name": row["name"]}
 
 

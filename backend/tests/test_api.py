@@ -166,6 +166,32 @@ def test_analysis_context_uses_full_market(client):
     assert client.get("/api/quote/context/600003").status_code == 401
     assert client.get("/api/quote/context/999999", headers=h).json()["industry"] is None
 def test_tick_details_metadata_and_errors(client, monkeypatch):
+def test_add_stock_directly_to_owned_desk_group(client):
+    admin = login(client, "admin", "admin123")
+    uid = _mkuser(client, admin, "deskpicker", "picker123456")
+    other_uid = _mkuser(client, admin, "deskother", "picker123456")
+    try:
+        h = login(client, "deskpicker", "picker123456")
+        other = login(client, "deskother", "picker123456")
+        gid = client.post("/api/desk/groups", headers=h, json={"name": "趋势观察"}).json()["id"]
+        foreign_gid = client.post("/api/desk/groups", headers=other, json={"name": "其他目录"}).json()["id"]
+        for _ in range(2):
+            r = client.post("/api/desk/stocks", headers=h,
+                            json={"code": "600001", "group_id": gid})
+            assert r.status_code == 200, r.text
+        assert [r["f12"] for r in client.get("/api/desk/stocks", headers=h).json()["rows"]] == ["600001"]
+        assert client.get("/api/desk/groups", headers=h).json()["groups"][0]["codes"] == ["600001"]
+        assert client.get("/api/watchlist", headers=h).json()["rows"] == []
+        r = client.post("/api/desk/stocks", headers=h,
+                        json={"code": "300001", "group_id": foreign_gid})
+        assert r.status_code == 404
+        # 失败不能留下只加入股票池、未加入分组的半成品。
+        assert len(client.get("/api/desk/stocks", headers=h).json()["rows"]) == 1
+    finally:
+        client.delete(f"/api/admin/users/{uid}", headers=admin)
+        client.delete(f"/api/admin/users/{other_uid}", headers=admin)
+
+
     from app import ticks
     h = login(client, "admin", "admin123")
     payload = {"rows": [{"time": "14:59:00", "amount": 123000}],

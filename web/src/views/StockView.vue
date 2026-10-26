@@ -12,6 +12,7 @@ import { fetchKline, fetchMoneyFlow } from "../analysis/data";
 import { inWatch, loadWatchCodes, toggleWatch } from "../stores/watchlist";
 import AnalysisModal from "../analysis/AnalysisModal.vue";
 import KChart from "../stock/KChart.vue";
+import AddToDeskButton from "../components/AddToDeskButton.vue";
 import MinuteChart from "../stock/MinuteChart.vue";
 import { activePersonalSource, loadQuoteSource } from "../stores/quotesource";
 import { updateTabTitle } from "../stores/tabs";
@@ -214,6 +215,7 @@ function goBack() {
         </svg>
       </button>
       <button class="pill" @click="anaRef && anaRef.open(code)">分析</button>
+      <AddToDeskButton v-if="quote" :key="code" :code="String(code)" />
     </div>
 
     <div v-if="notFound" class="empty">未找到该股票，可能已退市或代码有误</div>

@@ -1207,6 +1207,7 @@ onMounted(async () => {
   document.addEventListener("click", onDocClick);
   document.addEventListener("contextmenu", onDocCtx);
   window.addEventListener("keydown", onGlobalKeydown);
+  window.addEventListener("desk-stocks-changed", loadStocks);
 });
 onBeforeUnmount(() => {
   if (noteDirty.value && noteCode.value) {
@@ -1218,6 +1219,7 @@ onBeforeUnmount(() => {
   document.removeEventListener("click", onDocClick);
   document.removeEventListener("contextmenu", onDocCtx);
   window.removeEventListener("keydown", onGlobalKeydown);
+  window.removeEventListener("desk-stocks-changed", loadStocks);
 });
 </script>
 
