@@ -6,15 +6,15 @@
      a-share-3030-strategy          3030战法·支撑压力（日线级别）
      a-share-money-flow             主力资金流向（辅助验证）
    所有结论均为技术面概率框架，不构成投资建议。 */
-import { fmtN, fmtYiT, esc } from "../utils/format";
-import { smaLast, pctChg, pivots, makeZones } from "./indicators";
+import { fmtN, fmtYiT, esc } from "../utils/format.js";
+import { smaLast, pctChg, pivots, makeZones } from "./indicators.js";
 
 const OK = "✅", WARN = "⚠️", BAD = "❌";
 const line = (mark, text) => `<div class="anaLine">${mark} ${text}</div>`;
 
 // ===== 市场情绪（把全市场快照 allRows 当数据源，本地 O(n) 计算，零新增请求）=====
 // 涨跌幅阈值按板块：主板10%（含 ST，按 2025 新规） / 创业板·科创板20% / 北交所30%
-export function limitPctOf(code) { return /^(30|68)/.test(code) ? 20 : /^[48]/.test(code) ? 30 : 10; }
+export function limitPctOf(code) { return /^(30|68)/.test(code) ? 20 : /^[489]/.test(code) ? 30 : 10; }
 // 涨停容差按比例 2%（主板 9.8% / 创业 19.6% / 北交 29.4%），避免仅"封板"才算涨停
 export function limitTol(lp) { return Math.max(0.2, lp * 0.02); }
 
@@ -41,6 +41,20 @@ export function computeSentiment(rows, idxBars) {
   // 对称区间：冰点 0-19 / 低迷 20-39 / 中性 40-59 / 活跃 60-79 / 亢奋 80-100
   const level = temp < 20 ? "冰点" : temp < 40 ? "低迷" : temp < 60 ? "中性" : temp < 80 ? "活跃" : "亢奋";
   return { temp, level, up, down: valid - up, valid, limitUp, limitDown, bigDown, upRatio, volRatio, volSrc, volNote };
+}
+
+// 使用服务端完整市场统计，避免将筛选结果当成市场样本。
+export function sentimentFromStats(stats, idxBars) {
+  if (!stats?.valid) return null;
+  const upRatio = stats.up / stats.valid;
+  const limitScore = stats.limit_up + stats.limit_down > 0
+    ? stats.limit_up / (stats.limit_up + stats.limit_down) * 30 : 15;
+  const volume = idxVolumeScore(idxBars);
+  const temp = Math.round(upRatio * 40 + limitScore + volume.volScore);
+  const level = temp < 20 ? "冰点" : temp < 40 ? "低迷" : temp < 60 ? "中性" : temp < 80 ? "活跃" : "亢奋";
+  return { temp, level, up: stats.up, down: stats.down, valid: stats.valid,
+    limitUp: stats.limit_up, limitDown: stats.limit_down, bigDown: stats.big_down,
+    upRatio, ...volume };
 }
 
 // 量能分量（情绪温度 30 分）：上证指数当日成交额 / 前 5 日均额，盘中按上海交易时段线性外推

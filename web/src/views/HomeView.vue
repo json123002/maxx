@@ -113,13 +113,13 @@
           <router-link to="/screener" class="secMore">进入筛选 →</router-link>
         </div>
         <div v-if="hot.length" class="hot">
-          <a v-for="(s, i) in hot" :key="s.f12" class="hRow" :href="quoteUrl(s.f12)" target="_blank" rel="noopener">
+          <router-link v-for="(s, i) in hot" :key="s.f12" class="hRow" :to="'/stock/' + s.f12">
             <span class="hIdx">{{ i + 1 }}</span>
             <span class="hName">{{ s.f14 }}<i class="hCode">{{ s.f12 }}</i><span v-if="s.limit_up === 1" class="lmBadge up">涨停</span><span v-else-if="s.limit_down === 1" class="lmBadge down">跌停</span></span>
             <span class="hPx" :class="cls(s.f3)">{{ fmtN(s.f2) }}</span>
             <span class="hChg" :class="cls(s.f3)">{{ s.f3 > 0 ? "+" : "" }}{{ fmtN(s.f3) }}%</span>
             <span class="hTov">{{ fmtN(s.f8, 1) }}%</span>
-          </a>
+          </router-link>
         </div>
         <div v-else class="hEmpty">暂无快照数据</div>
       </section>
@@ -175,7 +175,7 @@ import {
 } from "@ant-design/icons-vue";
 import { api } from "../api/client";
 import { authState } from "../stores/auth";
-import { fmtN, cls, quoteUrl } from "../utils/format";
+import { fmtN, cls } from "../utils/format";
 import { fetchIndexKline } from "../analysis/data";
 import { idxVolumeScore } from "../analysis/strategies";
 import { version } from "../../package.json";

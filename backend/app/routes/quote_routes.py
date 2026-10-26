@@ -232,6 +232,26 @@ def quote_meta(markets: str | None = Query(default=None),
     }
 
 
+@router.get("/api/quote/context/{code}")
+def quote_context(code: str, user=Depends(current_user)):
+    """个股分析背景：完整市场及完整行业，始终不受候选池过滤影响。"""
+    conn = get_conn()
+    row = conn.execute("SELECT industry FROM latest WHERE code = ?", (code,)).fetchone()
+    market = quote_meta(markets=None, user=user)
+    industry = row["industry"] if row else None
+    peer = conn.execute(
+        "SELECT COUNT(*) AS n, SUM(CASE WHEN f3 > 3 THEN 1 ELSE 0 END) AS up,"
+        " AVG(f3) AS avg_chg FROM latest WHERE industry = ? AND f2 > 0 AND f3 IS NOT NULL",
+        (industry,),
+    ).fetchone()
+    n = peer["n"] or 0
+    return {"market": market, "industry": {
+        "name": industry, "n": n, "up": peer["up"] or 0,
+        "ratio": (peer["up"] or 0) / n if n else None,
+        "avg_chg": peer["avg_chg"],
+    } if n else None}
+
+
 @router.get("/api/quote/sector-strength")
 def quote_sector_strength(user=Depends(current_user)):
     """全市场行业板块强度统计：客观聚合各行业涨跌幅、赚钱效应广度、涨停家数与领涨龙头。"""

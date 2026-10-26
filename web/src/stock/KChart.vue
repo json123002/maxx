@@ -1,6 +1,6 @@
 <script setup>
-/* ===== 日K蜡烛图(canvas,无第三方图表库)=====
-   - 主图:蜡烛 + MA5/10/20;副图:成交量柱
+/* ===== 多周期蜡烛图(canvas,无第三方图表库)=====
+   - 主图:蜡烛 + MA5/10/20/60 + 最新价线;副图:成交量柱
    - 交互:滚轮缩放(光标锚定) · 左右拖拽平移 · 双击复位 · 区间快捷切换
    - 十字光标:桌面鼠标移动显示 OHLC/涨跌幅/换手/量
    - 主题变量取色,明暗切换/窗口缩放自动重绘 */
@@ -12,6 +12,7 @@ import { macdSeries, kdjSeries } from "../analysis/indicators";
 const props = defineProps({
   bars: { type: Array, default: () => [] }, // [{date,open,close,high,low,vol,pct,turnover}]
   loading: { type: Boolean, default: false }, // 取数中:空态显示加载动画而非"加载失败"
+  compact: { type: Boolean, default: false }, // 简洁模式:隐藏周期阶段,保留K线核心交互
 });
 
 const subIndicator = ref(localStorage.getItem("default_sub_indicator") || "VOL"); // VOL | MACD | KDJ
@@ -33,7 +34,7 @@ const RANGES = [
   { name: "一年", n: 250 }, { name: "全部", n: 0 },
 ];
 /* ---------- 周期阶段标注 ---------- */
-const showPhases = ref(true);
+const showPhases = ref(!props.compact);
 const phases = computed(() => detectPhases(props.bars));
 // 阶段类型筛选:默认不勾选(图面更干净),需要时自行勾选或一键全选
 const phaseTypes = reactive({ flat: false, rise: false, bounce: false, trendUp: false, trendDown: false });
@@ -96,8 +97,10 @@ function maArr(bars, p) {
 }
 
 // 布局常量(draw 与事件换算共用)
-const PAD_L = 8, PAD_R = 56, PAD_T = 52, AXIS_H = 20;
+const PAD_L = 10, PAD_R = 62, PAD_T = 58, AXIS_H = 24;
 const MIN_BARS = 20;
+const MA_PERIODS = [5, 10, 20, 60];
+const MA_COLORS = ["#f0b35a", "#b678ff", "#4aa8ff", "#8b98ad"];
 
 function draw() {
   const el = cv.value, box = wrap.value;
@@ -123,11 +126,11 @@ function draw() {
   const volTop = priceH + 16, volH = H - volTop - AXIS_H;
   const plotW = W - PAD_L - PAD_R;
   const step = plotW / m;
-  const bw = Math.max(1.5, Math.min(11, step * 0.64));
+  const bw = Math.max(1.5, Math.min(12, step * 0.68));
   const x = (i) => PAD_L + step * (i + 0.5); // i 为 slice 内下标
 
   // 值域按可视窗口计算(含均线),缩放时自动撑满
-  const mas = [5, 10, 20].map((p) => maArr(bars, p));
+  const mas = MA_PERIODS.map((p) => maArr(bars, p));
   let hi = -Infinity, lo = Infinity, vMax = 0;
   slice.forEach((b, i) => {
     const ai = start + i;
@@ -141,28 +144,31 @@ function draw() {
   const cUp = cssVar("--up"), cDown = cssVar("--down");
   const cLine = cssVar("--line"), cDim = cssVar("--dim"), cTxt = cssVar("--txt");
   const cPanel = cssVar("--panel") || "#000";
-  const cMA = ["#f5a623", "#b678ff", "#4aa8ff"]; // MA5/10/20
 
   ctx.font = "10.5px " + (cssVar("--mono") || "monospace");
   ctx.textBaseline = "middle";
 
-  // 网格 + 右价格轴
+  // 细网格 + 右价格轴
   ctx.textAlign = "left";
   for (let g = 0; g <= 4; g++) {
     const v = hi - ((hi - lo) * g) / 4;
-    const gy = y(v);
-    ctx.strokeStyle = cLine; ctx.lineWidth = 1;
+    const gy = Math.round(y(v)) + 0.5;
+    ctx.strokeStyle = cLine; ctx.lineWidth = 1; ctx.globalAlpha = 0.58;
     ctx.beginPath(); ctx.moveTo(PAD_L, gy); ctx.lineTo(W - PAD_R, gy); ctx.stroke();
-    ctx.fillStyle = cDim;
-    ctx.fillText(fmtP(v), W - PAD_R + 6, gy);
+    ctx.globalAlpha = 1; ctx.fillStyle = cDim;
+    ctx.fillText(fmtP(v), W - PAD_R + 7, gy);
   }
-  // 底日期轴(最多 8 个)
-  const nLbl = Math.max(1, Math.min(8, m, Math.floor(plotW / 75)));
+  // 时间网格与底轴;分钟K保留月日和时分
+  const nLbl = Math.max(1, Math.min(8, m, Math.floor(plotW / 92)));
+  const axisDate = (d) => d.includes(" ") ? d.slice(5, 10) + " " + d.slice(11, 16) : d.slice(2);
   ctx.textAlign = "center";
   for (let k = 0; k < nLbl; k++) {
     const i = Math.round((k * (m - 1)) / Math.max(nLbl - 1, 1));
-    ctx.fillStyle = cDim;
-    ctx.fillText(slice[i].date.slice(2), Math.max(PAD_L + 24, Math.min(W - PAD_R - 24, x(i))), H - AXIS_H / 2);
+    const tx = Math.max(PAD_L + 38, Math.min(W - PAD_R - 38, x(i)));
+    ctx.strokeStyle = cLine; ctx.globalAlpha = 0.4;
+    ctx.beginPath(); ctx.moveTo(x(i), PAD_T); ctx.lineTo(x(i), H - AXIS_H); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.fillStyle = cDim;
+    ctx.fillText(axisDate(slice[i].date), tx, H - AXIS_H / 2);
   }
   // 主副图分隔线
   ctx.strokeStyle = cLine;
@@ -228,7 +234,8 @@ function draw() {
 
   // MA 线(跨窗口取绝对下标,保证窗口边缘连线正确)
   mas.forEach((ma, mi) => {
-    ctx.strokeStyle = cMA[mi]; ctx.lineWidth = 1.2;
+    ctx.strokeStyle = MA_COLORS[mi]; ctx.lineWidth = 1.35;
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
     ctx.beginPath();
     let started = false;
     for (let i = 0; i < m; i++) {
@@ -239,6 +246,18 @@ function draw() {
     }
     ctx.stroke();
   });
+
+  // 最新价虚线和右轴标签,不用悬停也能快速定位现价
+  const latest = slice.at(-1);
+  if (latest) {
+    const ly = y(latest.close), lc = latest.close >= latest.open ? cUp : cDown;
+    ctx.strokeStyle = lc; ctx.globalAlpha = 0.65; ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.moveTo(PAD_L, ly); ctx.lineTo(W - PAD_R, ly); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+    ctx.fillStyle = lc; ctx.fillRect(W - PAD_R + 2, ly - 8, PAD_R - 4, 16);
+    ctx.fillStyle = cPanel; ctx.textAlign = "left";
+    ctx.fillText(fmtP(latest.close), W - PAD_R + 7, ly);
+  }
 
   const cur = hoverIdx.value >= start && hoverIdx.value < view.end ? hoverIdx.value : n - 1;
 
@@ -358,16 +377,15 @@ function draw() {
   // MA 图例(左上)
   ctx.textAlign = "left";
   let lx = PAD_L + 2;
-  [5, 10, 20].forEach((p, mi) => {
+  MA_PERIODS.forEach((p, mi) => {
     const v = mas[mi][cur];
     const t = "MA" + p + " " + (v == null ? "—" : fmtP(v));
-    ctx.fillStyle = cMA[mi];
-    ctx.fillText(t, lx, 9);
-    lx += ctx.measureText(t).width + 14;
+    ctx.fillStyle = MA_COLORS[mi];
+    ctx.fillText(t, lx, 10);
+    lx += ctx.measureText(t).width + 13;
   });
 
-
-  // 十字光标 + 信息层
+  // 十字光标 + 右轴悬停价
   if (hoverIdx.value >= start && hoverIdx.value < view.end) {
     const i = hoverIdx.value - start;
     const b = slice[i];
@@ -376,27 +394,28 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(cx, PAD_T); ctx.lineTo(cx, H - AXIS_H); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(PAD_L, cy); ctx.lineTo(W - PAD_R, cy); ctx.stroke();
     ctx.setLineDash([]);
-    // 右轴收盘价标签
     const lbl = fmtP(b.close);
-    const lw = ctx.measureText(lbl).width + 10;
     ctx.fillStyle = cDim;
-    ctx.fillRect(W - PAD_R + 1, cy - 8, lw, 16);
+    ctx.fillRect(W - PAD_R + 2, cy - 8, PAD_R - 4, 16);
     ctx.fillStyle = cPanel;
-    ctx.fillText(lbl, W - PAD_R + 6, cy);
-    // 信息行(MA 图例下方)
-    const up = b.close >= b.open;
+    ctx.fillText(lbl, W - PAD_R + 7, cy);
+  }
+
+  // 最新/悬停K线信息常显,两行避免与右侧工具条争夺空间
+  const cb = bars[cur];
+  if (cb) {
+    const up = cb.close >= cb.open;
     ctx.fillStyle = cTxt;
-    const info = b.date + "  开 " + fmtP(b.open) + "  高 " + fmtP(b.high) +
-      "  低 " + fmtP(b.low) + "  收 " + fmtP(b.close);
-    ctx.fillText(info, PAD_L + 2, 22);
-    let ix = PAD_L + 2 + ctx.measureText(info + "   ").width;
+    const info = cb.date + "  开 " + fmtP(cb.open) + "  高 " + fmtP(cb.high) +
+      "  低 " + fmtP(cb.low) + "  收 " + fmtP(cb.close);
+    ctx.fillText(info, PAD_L + 2, 28);
+    const pctTxt = isFinite(cb.pct) ? (cb.pct > 0 ? "+" : "") + cb.pct.toFixed(2) + "%" : "—";
     ctx.fillStyle = up ? cUp : cDown;
-    const pctTxt = (isFinite(b.pct) ? (b.pct > 0 ? "+" : "") + b.pct.toFixed(2) + "%" : "—");
-    ctx.fillText(pctTxt, ix, 22);
-    ix += ctx.measureText(pctTxt + "   ").width;
+    ctx.fillText(pctTxt, PAD_L + 2, 45);
+    const px = PAD_L + 2 + ctx.measureText(pctTxt).width + 16;
     ctx.fillStyle = cDim;
-    ctx.fillText("量 " + fmtVol(b.vol) +
-      (isFinite(b.turnover) ? "  换手 " + b.turnover.toFixed(2) + "%" : ""), ix, 22);
+    ctx.fillText("量 " + fmtVol(cb.vol) +
+      (isFinite(cb.turnover) ? "  换手 " + cb.turnover.toFixed(2) + "%" : ""), px, 45);
   }
 }
 
@@ -468,7 +487,7 @@ watch(phaseTypes, draw);
   <div class="kRoot">
   <div ref="wrap" class="kWrap">
     <div class="kRanges">
-      <button class="kRange" :class="{ on: showPhases }" @click="showPhases = !showPhases; draw()">周期</button>
+      <button v-if="!compact" class="kRange" :class="{ on: showPhases }" @click="showPhases = !showPhases; draw()">周期</button>
       <button v-for="r in RANGES" :key="r.name" class="kRange"
               :class="{ on: r.n ? view.count === Math.min(r.n, bars.length) : view.count === bars.length }"
               @click="setRange(r.n)">{{ r.name }}</button>
@@ -550,18 +569,18 @@ watch(phaseTypes, draw);
 .phasePanel summary { cursor: pointer; } .phasePanel p { margin: 4px 0; }
 canvas { display: block; cursor: crosshair; touch-action: pan-y; }
 .kRanges {
-  position: absolute; top: 28px; right: 62px; z-index: 2;
-  display: flex; gap: 2px; background: var(--panel);
-  border: 1px solid var(--line); border-radius: 999px; padding: 2px;
+  position: absolute; top: 30px; right: 68px; z-index: 2;
+  display: flex; gap: 2px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 2px;
 }
 .subIndRanges {
   top: auto;
-  bottom: 22px;
-  right: 62px;
+  bottom: 26px;
+  right: 68px;
 }
 .kRange {
-  background: none; border: none; border-radius: 999px; cursor: pointer;
-  color: var(--dim); font-size: 11px; font-family: inherit; padding: 2px 10px;
+  background: none; border: none; border-radius: 5px; cursor: pointer;
+  color: var(--dim); font-size: 10.5px; font-family: inherit; padding: 3px 9px;
   transition: color .15s, background .15s;
 }
 .kRange:hover { color: var(--txt); }

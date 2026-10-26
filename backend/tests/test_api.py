@@ -153,6 +153,87 @@ def test_quote_meta_stats(client):
 
 
 # ===== 涨跌停判定（最新价 vs 东财涨/跌停价）=====
+def test_funds_requires_owned_source_and_sanitizes_errors(client, monkeypatch):
+    from app import funds
+    admin = login(client, "admin", "admin123")
+    uid = _mkuser(client, admin, "fundsviewer", "funds123456")
+    try:
+        h = login(client, "fundsviewer", "funds123456")
+        assert client.get("/api/desk/funds/600293").status_code == 401
+        assert client.get("/api/desk/funds/600293", headers=h).status_code == 400
+        secret = "TEST-FUNDS-CREDENTIAL"
+        client.post("/api/quotesettings", headers=h,
+                    json={"name": "test funds", "provider": "mairui", "licence": secret})
+        def fail(code, source):
+            assert source["user_id"] == uid
+            raise RuntimeError("https://upstream/" + secret)
+        monkeypatch.setattr(funds, "get_dataset", fail)
+        r = client.get("/api/desk/funds/600293", headers=h)
+        assert r.status_code == 502
+        assert secret not in r.text
+        assert client.get("/api/desk/funds/920002", headers=h).status_code == 400
+        assert client.get("/api/desk/funds/600293?side=unknown", headers=h).status_code == 422
+    finally:
+        client.delete(f"/api/admin/users/{uid}", headers=admin)
+
+
+def test_add_stock_directly_to_owned_desk_group(client):
+    admin = login(client, "admin", "admin123")
+    uid = _mkuser(client, admin, "deskpicker", "picker123456")
+    other_uid = _mkuser(client, admin, "deskother", "picker123456")
+    try:
+        h = login(client, "deskpicker", "picker123456")
+        other = login(client, "deskother", "picker123456")
+        gid = client.post("/api/desk/groups", headers=h, json={"name": "趋势观察"}).json()["id"]
+        foreign_gid = client.post("/api/desk/groups", headers=other, json={"name": "其他目录"}).json()["id"]
+        for _ in range(2):
+            r = client.post("/api/desk/stocks", headers=h,
+                            json={"code": "600001", "group_id": gid})
+            assert r.status_code == 200, r.text
+        assert [r["f12"] for r in client.get("/api/desk/stocks", headers=h).json()["rows"]] == ["600001"]
+        assert client.get("/api/desk/groups", headers=h).json()["groups"][0]["codes"] == ["600001"]
+        assert client.get("/api/watchlist", headers=h).json()["rows"] == []
+        r = client.post("/api/desk/stocks", headers=h,
+                        json={"code": "300001", "group_id": foreign_gid})
+        assert r.status_code == 404
+        # 失败不能留下只加入股票池、未加入分组的半成品。
+        assert len(client.get("/api/desk/stocks", headers=h).json()["rows"]) == 1
+    finally:
+        client.delete(f"/api/admin/users/{uid}", headers=admin)
+        client.delete(f"/api/admin/users/{other_uid}", headers=admin)
+
+
+def test_tick_details_metadata_and_errors(client, monkeypatch):
+    from app import ticks
+    h = login(client, "admin", "admin123")
+    payload = {"rows": [{"time": "14:59:00", "amount": 123000}],
+               "trade_date": "2026-10-23", "source": "腾讯成交明细"}
+    monkeypatch.setattr(ticks, "get_ticks", lambda code: payload)
+    assert client.get("/api/desk/ticks/600001", headers=h).json() == payload
+    assert client.get("/api/desk/ticks/invalid", headers=h).status_code == 400
+    assert client.get("/api/desk/ticks/600001").status_code == 401
+    def fail(code):
+        raise ValueError("upstream invalid payload")
+    monkeypatch.setattr(ticks, "get_ticks", fail)
+    r = client.get("/api/desk/ticks/600001", headers=h)
+    assert r.status_code == 502
+    assert "upstream" not in r.text
+
+
+def test_analysis_context_uses_full_market(client):
+    h = login(client, "admin", "admin123")
+    # 筛选只命中创业板一只，个股分析背景仍覆盖全市场和完整银行行业。
+    assert client.get("/api/quote/list?tmin=20", headers=h).json()["total"] == 1
+    r = client.get("/api/quote/context/600003", headers=h)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["market"]["stats"]["valid"] == 4
+    assert d["industry"]["n"] == 2
+    assert d["industry"]["up"] == 0
+    assert client.get("/api/quote/context/600003").status_code == 401
+    assert client.get("/api/quote/context/999999", headers=h).json()["industry"] is None
+
+
 def test_limit_flags():
     assert limit_flags(10.0, 10.0, 8.19) == (1, 0)        # 封涨停
     assert limit_flags(9.0, 10.0, 8.19) == (0, 0)         # 差一截不算
@@ -530,22 +611,21 @@ def test_sector_strength(client):
     assert isinstance(d["rows"], list)
 
 
-# ===== 登录防爆破限流 =====
-def test_login_rate_limit(client):
-    # 用独立 IP + 独立用户名，不影响套件里 admin 的正常登录
+# ===== 登录失败不锁定账号或 IP =====
+def test_login_failures_do_not_lock_out(client):
     h = {"X-Forwarded-For": "198.51.100.9"}
-    for _ in range(10):
+    for _ in range(12):
         r = client.post("/api/auth/login", headers=h,
-                        json={"username": "brute", "password": "x"})
+                        json={"username": "admin", "password": "x"})
         assert r.status_code == 401
-    # 第 11 次触发 429;同 IP 换一个用户名也被限(IP 维度)
+    # 连续输错后，同一账号和 IP 使用正确密码仍能立即登录。
     r = client.post("/api/auth/login", headers=h,
-                    json={"username": "brute", "password": "x"})
-    assert r.status_code == 429
+                    json={"username": "admin", "password": "admin123"})
+    assert r.status_code == 200
     r = client.post("/api/auth/login", headers=h,
                     json={"username": "other", "password": "x"})
-    assert r.status_code == 429
-    # 不同 IP 的正常用户不受影响
+    assert r.status_code == 401
+    # 不同 IP 的正常用户也可登录。
     r = client.post("/api/auth/login", headers={"X-Forwarded-For": "198.51.100.10"},
                     json={"username": "admin", "password": "admin123"})
     assert r.status_code == 200

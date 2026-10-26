@@ -692,8 +692,8 @@
                   <td>
                     <div class="stockCell">
                       <div class="stockMain">
-                        <a class="stockCode" @click.stop="openAnalysis(r.code)">{{ r.code }}</a>
-                        <span class="stockName" @click.stop="openAnalysis(r.code)">{{ r.name }}</span>
+                        <router-link class="stockCode" :to="'/stock/' + r.code" @click.stop>{{ r.code }}</router-link>
+                        <router-link class="stockName" :to="'/stock/' + r.code" @click.stop>{{ r.name }}</router-link>
                         <span v-if="r.limit_up" class="ztTag">涨停</span>
                       </div>
                       <div class="stockSub">
@@ -807,9 +807,9 @@
                       >
                         {{ inWatch(r.code) ? '★' : '☆' }}
                       </button>
-                      <a :href="quoteUrl(r.code)" target="_blank" class="extBtn" title="查看行情" @click.stop>
+                      <router-link :to="'/stock/' + r.code" class="extBtn" title="查看行情" @click.stop>
                         <ExportOutlined />
-                      </a>
+                      </router-link>
                     </div>
                   </td>
                 </tr>
@@ -923,8 +923,8 @@
                   <td>
                     <div class="stockCell">
                       <div class="stockMain">
-                        <a class="stockCode" @click.stop="openAnalysis(r.code)">{{ r.code }}</a>
-                        <span class="stockName" @click.stop="openAnalysis(r.code)">{{ r.name }}</span>
+                        <router-link class="stockCode" :to="'/stock/' + r.code" @click.stop>{{ r.code }}</router-link>
+                        <router-link class="stockName" :to="'/stock/' + r.code" @click.stop>{{ r.name }}</router-link>
                       </div>
                       <div class="stockSub">
                         <span class="industryTag">{{ r.industry || '综合' }}</span>
@@ -983,9 +983,9 @@
                       >
                         {{ inWatch(r.code) ? '★' : '☆' }}
                       </button>
-                      <a :href="quoteUrl(r.code)" target="_blank" class="extBtn" title="查看行情" @click.stop>
+                      <router-link :to="'/stock/' + r.code" class="extBtn" title="查看行情" @click.stop>
                         <ExportOutlined />
-                      </a>
+                      </router-link>
                     </div>
                   </td>
                 </tr>
@@ -1045,7 +1045,7 @@ import {
   ExportOutlined,
 } from "@ant-design/icons-vue";
 import { api, track } from "../api/client";
-import { fmtN, fmtYiT, cls, quoteUrl } from "../utils/format";
+import { fmtN, fmtYiT, cls } from "../utils/format";
 import { inWatch, toggleWatch, loadWatchCodes } from "../stores/watchlist";
 import AnalysisModal from "../analysis/AnalysisModal.vue";
 

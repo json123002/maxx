@@ -1,6 +1,6 @@
 /* ===== 取数层(移植自旧 screener-analysis.js)=====
    数据:东财日K(qfq,JSONP) → 腾讯(qfq,CORS) → 新浪(不复权,var-JSONP) 三级兜底;资金流仅东财;现价用筛选快照(row.f2)做实时校正。 */
-import { jsonp, jsonpVar } from "../utils/jsonp";
+import { jsonp, jsonpVar } from "../utils/jsonp.js";
 
 export const HIS_HOSTS = ["https://push2his.eastmoney.com"]; // 东财日K唯一可用域名(延迟/编号镜像均为302死链,已实测);失败兜底走腾讯 fqkline
 export const KLINE_DAYS = 130;
