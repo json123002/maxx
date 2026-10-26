@@ -6,12 +6,15 @@
    选中的股票驱动个股视图内容(参考 TradingView watchlist 交互)。
    数据:股票池/星标/分组/F10/同花顺挂单异动 走后端;实时行情/盘口异动/资金流走东财 JSONP 直连。 */
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { message } from "ant-design-vue";
 import { track } from "../api/client";
 import { cls, fmtN, fmtYiT } from "../utils/format";
 import { marketState } from "../flow/capital-flow";
 import AnalysisModal from "../analysis/AnalysisModal.vue";
 import ConfirmModal from "../components/ConfirmModal.vue";
+
+const router = useRouter();
 import {
   fetchLiveQuotes, fetchChanges, fetchMoneyFlow20, fetchTickDetails,
   fetchStars, addStar, removeStar, fetchF10, buildAlerts,
@@ -1166,9 +1169,7 @@ function onGlobalKeydown(e) {
     e.preventDefault();
     if (selected.value) openAnalysis(selected.value);
   } else if (e.key === "Enter") {
-    if (selected.value) {
-      window.open('/stock/' + selected.value, '_blank');
-    }
+    if (selected.value) router.push('/stock/' + selected.value);
   }
 }
 
