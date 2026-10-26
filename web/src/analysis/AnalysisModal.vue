@@ -1,48 +1,53 @@
 <template>
   <div class="anaModal" :class="{ open: visible }" @click="onOverlayClick">
-    <div class="anaBox">
+    <div class="anaBox" role="dialog" aria-modal="true" :aria-label="head ? `${head.name}个股分析` : '个股分析'" @click="onBodyClick">
       <div v-if="head" class="anaHead">
         <div class="anaTitle">
           <b>{{ head.name }}</b><span class="cd">{{ head.code }}</span>
           <span class="pr"><b>{{ head.priceTxt }}</b> <span :class="head.pctCls">{{ head.pctTxt }}</span></span>
         </div>
-        <button class="anaClose" title="关闭" @click="close">×</button>
+        <button class="anaClose" type="button" title="关闭" aria-label="关闭分析弹窗" @click="close">×</button>
       </div>
-      <div ref="bodyRef" class="anaBody" :class="{ anaBodyFade: fading, anaContentFade: entering }" @click="onBodyClick">
+      <nav v-if="phase !== 'loading'" class="anaNav" role="tablist" aria-label="个股分析视图">
+        <button v-for="(m, i) in mods" :key="i" type="button" role="tab" class="anaTab"
+                :class="{ on: i === activeTab }" :aria-selected="i === activeTab" :data-i="i">
+          {{ m.title.split(" · ")[0] }}
+        </button>
+        <button v-if="head" type="button" role="tab" class="anaTab"
+                :class="{ on: fundsActive }" :aria-selected="fundsActive" :data-i="mods.length">资金</button>
+      </nav>
+      <div ref="bodyRef" class="anaBody" :class="{ anaBodyFade: fading, anaContentFade: entering }">
         <div v-if="phase === 'loading'" class="anaLoading">
           <div class="anaSpinner"></div>
           <div class="anaLoadTxt">正在获取日K与资金流数据<span class="anaDots"><span></span><span></span><span></span></span></div>
         </div>
         <template v-else>
-          <div v-if="phase === 'error' && activeTab !== mods.length" class="anaLoading">{{ errorMsg }}</div>
-          <div v-if="phase === 'ready' && activeTab !== mods.length" class="anaBasis">数据：{{ klineSrc }} · {{ basisNote }}</div>
+          <div v-if="phase === 'error' && !fundsActive" class="anaLoading">{{ errorMsg }}</div>
+          <div v-if="phase === 'ready' && !fundsActive" class="anaBasis">数据：{{ klineSrc }} · {{ basisNote }}</div>
           <!-- K线 + 筹码分布(筹码按全部日K窗口计算,口径见指标行) -->
-          <div v-if="phase === 'ready' && activeTab !== mods.length" class="anaCharts">
+          <div v-if="phase === 'ready' && !fundsActive" class="anaCharts">
             <div class="anaKWrap"><KChart :bars="barsRef" /></div>
             <div class="anaChipCol"><ChipChart :chips="chipsRef" /></div>
           </div>
-          <div v-if="phase === 'ready' && chipsRef && activeTab !== mods.length" class="anaChipMeta">
+          <div v-if="phase === 'ready' && chipsRef && !fundsActive" class="anaChipMeta">
             获利比例 <b :class="chipsRef.profitRatio > 0.5 ? 'up' : 'down'">{{ (chipsRef.profitRatio * 100).toFixed(1) }}%</b>
             · 平均成本 <b>{{ fmtN(chipsRef.avgCost) }}</b>
             · 90%成本 {{ fmtN(chipsRef.ci90.lo) }}~{{ fmtN(chipsRef.ci90.hi) }} 集中度 {{ (chipsRef.conc90 * 100).toFixed(1) }}%
             · 70%成本 {{ fmtN(chipsRef.ci70.lo) }}~{{ fmtN(chipsRef.ci70.hi) }} 集中度 {{ (chipsRef.conc70 * 100).toFixed(1) }}%
             <span class="chipNote">近 {{ chipsRef.days }} 日窗口{{ turnoverModeNote }}</span>
           </div>
-          <!-- 多页签：综合分析 / 趋势波段 / 趋势启动 / 超跌反弹 / 3030战法 / 资金流向 / 基本面 / 资金 -->
-          <div class="anaTabs">
-            <button v-for="(m, i) in mods" :key="i" class="anaTab" :class="{ on: i === activeTab }" :data-i="i">{{ m.title.split(" · ")[0] }}</button>
-            <button v-if="head" class="anaTab" :class="{ on: activeTab === mods.length }" :data-i="mods.length">资金</button>
-          </div>
-          <div class="anaPanes">
-            <div v-for="(m, i) in mods" :key="i" class="anaPane" :data-i="i" v-show="i === activeTab">
-              <div class="anaSecTitle">{{ m.title }}</div>
-              <div v-html="m.html"></div>
+          <Transition name="anaPaneSwap" mode="out-in">
+            <div :key="activeTab" class="anaPanes" role="tabpanel">
+              <div v-if="fundsActive && head" class="anaPane anaFundsPane">
+                <FundsPanel :code="head.code" />
+              </div>
+              <div v-else-if="activeMod" class="anaPane">
+                <div class="anaSecTitle">{{ activeMod.title }}</div>
+                <div v-html="activeMod.html"></div>
+              </div>
             </div>
-            <div v-if="head && activeTab === mods.length" class="anaPane">
-              <FundsPanel :code="head.code" />
-            </div>
-          </div>
-          <div v-if="phase === 'ready' && activeTab !== mods.length" class="anaDisc">以上为公开行情数据按 skills 各战法思路在浏览器端计算的技术面概率框架，板块强度/公告事件/解禁减持/深度财务未经核验，不构成投资建议，不预测收益。</div>
+          </Transition>
+          <div v-if="phase === 'ready' && !fundsActive" class="anaDisc">以上为公开行情数据按 skills 各战法思路在浏览器端计算的技术面概率框架，板块强度/公告事件/解禁减持/深度财务未经核验，不构成投资建议，不预测收益。</div>
         </template>
       </div>
     </div>
@@ -83,6 +88,8 @@ const entering = ref(false);    // anaContentFade:淡入 320ms
 const bodyRef = ref(null);
 const barsRef = ref([]);        // 日K(图表条用)
 const chipsRef = ref(null);     // 筹码分布结果
+const fundsActive = computed(() => activeTab.value === mods.value.length);
+const activeMod = computed(() => mods.value[activeTab.value] || null);
 
 // 换手率口径标注(兜底源无换手字段时降级估算)
 const turnoverModeNote = computed(() => {
@@ -209,17 +216,112 @@ defineExpose({ open });
 </script>
 
 <style scoped>
-.anaCharts { display: flex; gap: 8px; height: 340px; margin-bottom: 8px; }
-.anaKWrap { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.anaChipCol { width: 170px; flex: none; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.anaChipMeta { font-size: 12px; color: var(--dim); margin-bottom: 10px; line-height: 1.7; }
+.anaModal {
+  padding: 24px;
+  background: rgba(2, 6, 14, .62);
+  backdrop-filter: blur(10px) saturate(115%);
+  -webkit-backdrop-filter: blur(10px) saturate(115%);
+}
+.anaBox {
+  width: min(1180px, calc(100vw - 48px));
+  max-width: 1180px;
+  height: min(880px, calc(100vh - 48px));
+  height: min(880px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+  border-radius: 18px;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .3), 0 4px 20px rgba(0, 0, 0, .12);
+}
+.anaHead { padding: 18px 24px; }
+.anaHead .anaTitle { min-width: 0; gap: 12px; }
+.anaTitle > b { font-size: 20px; letter-spacing: -.02em; }
+.anaHead .cd { font-size: 12px; letter-spacing: .04em; }
+.anaHead .pr { margin-left: 6px; font-size: 15px; }
+.anaClose {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0; flex: none;
+  border: 1px solid transparent; border-radius: 10px;
+  transition: color .18s ease, background .18s ease, border-color .18s ease, transform .18s ease;
+}
+.anaClose:hover { border-color: var(--line); transform: rotate(3deg); }
+.anaClose:focus-visible, .anaTab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.anaNav {
+  flex: none; display: flex; gap: 4px; overflow-x: auto;
+  padding: 0 20px; border-bottom: 1px solid var(--line);
+  background: var(--panel); scrollbar-width: none;
+}
+.anaNav::-webkit-scrollbar { display: none; }
+.anaNav .anaTab {
+  position: relative; flex: none; margin: 0; padding: 13px 14px 14px;
+  border: 0; border-radius: 9px 9px 0 0; background: transparent;
+  color: var(--dim); font-size: 13px; font-weight: 600; letter-spacing: .01em;
+  transition: color .18s ease, background .18s ease;
+}
+.anaNav .anaTab::after {
+  content: ""; position: absolute; right: 13px; bottom: 0; left: 13px; height: 2px;
+  border-radius: 2px 2px 0 0; background: var(--accent);
+  transform: scaleX(0); opacity: 0; transition: transform .22s cubic-bezier(.2,.8,.2,1), opacity .18s ease;
+}
+.anaNav .anaTab:hover { color: var(--txt); background: var(--hover); }
+.anaNav .anaTab.on { color: var(--accent); border: 0; background: var(--accent-dim); }
+.anaNav .anaTab.on::after { transform: scaleX(1); opacity: 1; }
+.anaBody {
+  min-height: 0; padding: 18px 24px 24px;
+  overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--scroll) transparent;
+  scrollbar-gutter: stable;
+}
+.anaBody > .anaLoading { min-height: 100%; justify-content: center; }
+.anaBasis {
+  margin-bottom: 14px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel-2); line-height: 1.7;
+}
+.anaCharts { display: flex; gap: 12px; height: 360px; margin-bottom: 12px; }
+.anaKWrap, .anaChipCol {
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+}
+.anaKWrap { flex: 1; min-width: 0; }
+.anaChipCol { width: 200px; flex: none; }
+.anaChipMeta {
+  margin-bottom: 18px; padding: 11px 13px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel-2); font-size: 12px; color: var(--dim); line-height: 1.8;
+}
 .anaChipMeta b { color: var(--txt); font-weight: 600; }
 .anaChipMeta b.up { color: var(--up); }
 .anaChipMeta b.down { color: var(--down); }
-.chipNote { margin-left: 6px; opacity: 0.8; }
+.chipNote { margin-left: 6px; opacity: .8; }
+.anaPanes { min-height: 120px; min-width: 0; }
+.anaFundsPane { min-width: 0; }
+.anaPaneSwap-enter-active { transition: opacity .2s ease, transform .22s cubic-bezier(.2,.8,.2,1); }
+.anaPaneSwap-leave-active { transition: opacity .12s ease; }
+.anaPaneSwap-enter-from { opacity: 0; transform: translateY(7px); }
+.anaPaneSwap-leave-to { opacity: 0; }
+.anaDisc { margin-top: 20px; padding-top: 13px; border-top: 1px solid var(--line); }
+@media (max-width: 768px) {
+  .anaModal { padding: 0; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .anaBox {
+    width: 100%; max-width: none; height: 100vh; height: 100dvh;
+    max-height: none; border-radius: 0; box-shadow: none;
+  }
+  .anaHead { padding: 15px 16px; }
+  .anaTitle > b { font-size: 18px; }
+  .anaHead .pr { margin-left: 0; }
+  .anaNav { padding: 0 10px; }
+  .anaNav .anaTab { padding: 12px 11px; }
+  .anaBody { padding: 16px; scrollbar-gutter: auto; }
+}
 @media (max-width: 640px) {
+  .anaHead .anaTitle { flex-wrap: wrap; gap: 5px 9px; }
   .anaCharts { flex-direction: column; height: auto; }
-  .anaKWrap { height: 300px; }
+  .anaKWrap { height: 310px; }
   .anaChipCol { width: 100%; height: 180px; }
+  .chipNote { display: block; margin: 3px 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .anaModal, .anaBox, .anaClose, .anaNav .anaTab, .anaNav .anaTab::after,
+  .anaPaneSwap-enter-active, .anaPaneSwap-leave-active { transition: none !important; }
+  .anaPaneSwap-enter-from { transform: none; }
 }
 </style>
