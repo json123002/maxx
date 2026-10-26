@@ -2,10 +2,11 @@
 /* ===== 我的工作台 =====
    左栏 = 工作台股票列表(独立于自选):顶部搜索添加 + 从自选导入,
    重点关注 + 自定义分组 + 按加入日期分组,右键菜单,组内拖拽排序。
-   右栏 = 固定高度工作区,顶部页签:实时监控 / 盘口资金 / 基本分析 / 公司架构,
+   右栏 = 固定高度工作区,顶部页签:K线 / 盘口资金 / 基本分析 / 公司架构 / 实时监控,
    选中的股票驱动个股视图内容(参考 TradingView watchlist 交互)。
    数据:股票池/星标/分组/F10/同花顺挂单异动 走后端;实时行情/盘口异动/资金流走东财 JSONP 直连。 */
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import FundsPanel from "../components/FundsPanel.vue";
 import { useRouter } from "vue-router";
 import { message } from "ant-design-vue";
 import { track } from "../api/client";
@@ -13,6 +14,7 @@ import { cls, fmtN, fmtYiT } from "../utils/format";
 import { marketState } from "../flow/capital-flow";
 import AnalysisModal from "../analysis/AnalysisModal.vue";
 import ConfirmModal from "../components/ConfirmModal.vue";
+import StockKline from "../stock/StockKline.vue";
 
 const router = useRouter();
 import {
@@ -119,8 +121,8 @@ const poolRows = computed(() =>
   rows.value.filter((r) => !groupedCodes.value.has(r.f12)));
 
 /* ---------- 视图状态:顶部页签 + 选中股票 ---------- */
-// monitor=实时监控(不依赖个股) fund=盘口资金 basic=基本分析 exec=公司架构
-const tab = ref("monitor");
+// kline=K线 fund=盘口资金 basic=基本分析 exec=公司架构 monitor=实时监控(不依赖个股)
+const tab = ref("kline");
 const selected = ref("");
 
 const sel = computed(() => {
@@ -138,7 +140,7 @@ function pick(code, t) {
   userPick = true;
   selected.value = code;
   if (t) tab.value = t;
-  else if (!stockTab.value) tab.value = "fund";
+  else if (!stockTab.value) tab.value = "kline";
 }
 // 点个股页签:无选中股票时先落到第一只(重点关注优先)
 function pickTab(t) {
@@ -608,10 +610,17 @@ const flowStat = computed(() => {
   for (let i = fs.length - 1; i >= 0; i--) {
     if (fs[i].main < 0) outStreak += 1; else break;
   }
-  return { d5: sum(fs.slice(-5)), d20: sum(fs), streak, outStreak };
+  return { d3: sum(fs.slice(-3)), d5: sum(fs.slice(-5)), d10: sum(fs.slice(-10)), d20: sum(fs), streak, outStreak };
 });
 
-const flowDetail = computed(() => (flow20.value || []).slice(-10).reverse());
+const todayFlow = computed(() => flow20.value?.at(-1) || null);
+const flowOrders = computed(() => [
+  { key: "super", name: "超大单", note: "主力核心" },
+  { key: "big", name: "大单", note: "主力辅助" },
+  { key: "mid", name: "中单", note: "中户资金" },
+  { key: "small", name: "小单", note: "散户资金" },
+].map((o) => ({ ...o, value: todayFlow.value?.[o.key] })));
+const flowDetail = computed(() => (flow20.value || []).slice(-5).reverse());
 
 // 资金流 SVG 图:主力 = 超大单(深色) + 大单(浅色) 堆叠,零轴上下发散
 const flowChart = computed(() => {
@@ -1202,7 +1211,9 @@ onMounted(async () => {
     if (marketState().cls === "live") {
       refreshLive();
       refreshChanges();
-      if (tab.value === "fund") loadThs(selected.value, true);
+      if (tab.value === "fund") {
+        loadThs(selected.value, true);
+      }
     }
   }, 30_000);
   document.addEventListener("click", onDocClick);
@@ -1399,18 +1410,19 @@ onBeforeUnmount(() => {
     <!-- ===== 右侧:固定高度工作区(页签 + 内部滚动) ===== -->
     <div class="main">
       <nav class="topTabs" v-if="rows.length">
-        <button :class="{ on: tab === 'monitor' }" @click="pickTab('monitor')">实时监控</button>
+        <button :class="{ on: tab === 'kline' }" @click="pickTab('kline')">K线</button>
         <button :class="{ on: tab === 'fund' }" @click="pickTab('fund')">盘口资金</button>
         <button :class="{ on: tab === 'basic' }" @click="pickTab('basic')">基本分析</button>
         <button :class="{ on: tab === 'exec' }" @click="pickTab('exec')">公司架构</button>
         <button :class="{ on: tab === 'note' }" @click="pickTab('note')">操盘笔记</button>
+        <button :class="{ on: tab === 'monitor' }" @click="pickTab('monitor')">实时监控</button>
         <span class="topMeta">
           <template v-if="stockTab && sel">{{ sel.f14 }} {{ sel.f12 }} · </template>
           <i class="liveDot" :class="{ idle: !liveAt }"></i>{{ liveAt || "待刷新" }}
         </span>
       </nav>
 
-      <div class="stage" :class="{ isNote: tab === 'note' }" v-if="rows.length">
+      <div class="stage" :class="{ isNote: tab === 'note', isKline: tab === 'kline' }" v-if="rows.length">
         <!-- ===== 实时监控(双卡总览) ===== -->
         <div v-if="tab === 'monitor'" class="monGrid">
           <div class="dPanel">
@@ -1503,72 +1515,15 @@ onBeforeUnmount(() => {
           </header>
 
           <section class="dPanel detail">
+            <!-- ===== 多周期K线 ===== -->
+            <div v-if="tab === 'kline'" class="pane klinePane">
+              <StockKline :key="selected" :code="selected" compact />
+            </div>
+
             <!-- ===== 盘口资金 ===== -->
-            <div v-if="tab === 'fund'" class="pane">
-              <div class="dSub">主力流向<span class="dSubNote">今日实时 + 阶段累计</span></div>
-              <div class="statStrip">
-                <div class="stat">
-                  <span class="sCap">今日主力净额</span>
-                  <b :class="moneyCls(sel.f62)">{{ fmtMoneySign(sel.f62) }}</b>
-                </div>
-                <div class="stat" v-if="flowStat">
-                  <span class="sCap">近 5 日主力</span>
-                  <b :class="moneyCls(flowStat.d5)">{{ fmtMoneySign(flowStat.d5) }}</b>
-                </div>
-                <div class="stat" v-if="flowStat">
-                  <span class="sCap">近 20 日主力</span>
-                  <b :class="moneyCls(flowStat.d20)">{{ fmtMoneySign(flowStat.d20) }}</b>
-                </div>
-                <div class="stat" v-if="flowStat">
-                  <span class="sCap">连续性</span>
-                  <b v-if="flowStat.streak >= 2" class="up">连续 {{ flowStat.streak }} 日流入</b>
-                  <b v-else-if="flowStat.outStreak >= 2" class="down">连续 {{ flowStat.outStreak }} 日流出</b>
-                  <b v-else class="dimB">无连续趋势</b>
-                </div>
-              </div>
-
-              <div class="dSub">近 20 日大单流向<span class="dSubNote">主力 = 超大单 + 大单,单位:金额</span></div>
-              <div v-if="flowCache[selected]?.loading" class="dLoading"><i class="dSpin"></i>资金流加载中…</div>
-              <template v-else-if="flowChart">
-                <svg class="mfChart" :viewBox="`0 0 ${flowChart.W} ${flowChart.H}`" preserveAspectRatio="none">
-                  <line :x1="8" :x2="flowChart.W - 8" :y1="flowChart.mid" :y2="flowChart.mid" class="mfZero"/>
-                  <g v-for="(b, i) in flowChart.bars" :key="i">
-                    <rect v-for="(rc, j) in b.rects" :key="j"
-                          :x="rc.x" :y="rc.y" :width="rc.w" :height="rc.h"
-                          :class="rc.cls" :fill-opacity="rc.op" rx="1">
-                      <title>{{ b.date }} 主力净额 {{ fmtMoneySign(b.main) }}</title>
-                    </rect>
-                  </g>
-                  <text v-for="i in [0, Math.floor(flowChart.bars.length / 2), flowChart.bars.length - 1]"
-                        :key="'t' + i" class="mfTick" text-anchor="middle"
-                        :x="12 + (flowChart.W - 24) / flowChart.bars.length * (i + 0.5)"
-                        :y="flowChart.H - 6">{{ flowChart.bars[i].date }}</text>
-                </svg>
-                <div class="mfLegend">
-                  <span><i class="lg in"></i>净流入</span>
-                  <span><i class="lg out"></i>净流出</span>
-                  <span class="dimB">深色为超大单,浅色为大单;悬停查看单日净额</span>
-                </div>
-              </template>
-              <div v-else-if="flowCache[selected]?.error" class="dEmpty">
-                资金流加载失败(可能触发接口限流)
-                <button class="retryLink" @click="loadFlow(selected)">重试</button>
-              </div>
-              <div v-else class="dEmpty">暂无资金流数据</div>
-
-              <div class="dSub">大资金动向<span class="dSubNote">该股今日盘口异动</span></div>
-              <div v-if="selChanges.length" class="feedList static">
-                <div v-for="(c, i) in selChanges" :key="'sc' + i" class="cRow asRow">
-                  <span class="cTime">{{ c.time }}</span>
-                  <span class="cType" :class="c.dir">{{ c.type }}</span>
-                  <span class="cVal">
-                    {{ typeof c.price === "number" ? c.price.toFixed(2) : "" }}
-                    <b v-if="c.amount"> · {{ (c.amount / 1e4).toFixed(0) }}万</b>
-                  </span>
-                </div>
-              </div>
-              <div v-else class="dEmpty">今日暂无该股盘口异动</div>
-
+            <div v-else-if="tab === 'fund'" class="pane">
+              <FundsPanel :key="selected" :code="selected" />
+              <div class="fundSecondary">
               <div class="dSub">挂单异动<span class="dSubNote">同花顺 L2 · 特大挂买/撤单/压托单</span></div>
               <div v-if="thsCache[selected]?.loading" class="dLoading"><i class="dSpin"></i>异动加载中…</div>
               <template v-else>
@@ -1585,27 +1540,7 @@ onBeforeUnmount(() => {
                 </div>
                 <div v-else class="dEmpty">今日暂无该股挂单异动</div>
               </template>
-
-              <template v-if="flowDetail.length">
-                <div class="dSub">分级明细<span class="dSubNote">近 10 日,单位:金额</span></div>
-                <div class="mfTblWrap">
-                  <table class="mfTbl">
-                    <thead>
-                      <tr><th class="l">日期</th><th>主力</th><th>超大单</th><th>大单</th><th>中单</th><th>小单</th></tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="r in flowDetail" :key="r.date">
-                        <td class="l">{{ r.date.slice(5) }}</td>
-                        <td :class="moneyCls(r.main)">{{ fmtMoneySign(r.main) }}</td>
-                        <td :class="moneyCls(r.super)">{{ fmtMoneySign(r.super) }}</td>
-                        <td :class="moneyCls(r.big)">{{ fmtMoneySign(r.big) }}</td>
-                        <td :class="moneyCls(r.mid)">{{ fmtMoneySign(r.mid) }}</td>
-                        <td :class="moneyCls(r.small)">{{ fmtMoneySign(r.small) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </template>
+              </div>
             </div>
 
             <!-- ===== 基本分析 ===== -->
@@ -1885,7 +1820,7 @@ onBeforeUnmount(() => {
         </template>
 
         <div v-else class="dPanel dEmptyBig">
-          从左侧列表选择一只股票,查看{{ { fund: "盘口资金", basic: "基本分析", exec: "公司架构", note: "操盘笔记" }[tab] }}。
+          从左侧列表选择一只股票,查看{{ { kline: "K 线", fund: "盘口资金", basic: "基本分析", exec: "公司架构", note: "操盘笔记" }[tab] }}。
         </div>
       </div>
 
@@ -1905,6 +1840,7 @@ onBeforeUnmount(() => {
           <button class="ctxItem danger" @click="ctxAct((g) => askRemoveGroup(g))">删除分组</button>
         </template>
         <template v-else>
+          <button class="ctxItem" @click="ctxAct((r) => pick(r.f12, 'kline'))">K 线</button>
           <button class="ctxItem" @click="ctxAct((r) => pick(r.f12, 'fund'))">盘口资金</button>
           <button class="ctxItem" @click="ctxAct((r) => pick(r.f12, 'basic'))">基本分析</button>
           <button class="ctxItem" @click="ctxAct((r) => pick(r.f12, 'exec'))">公司架构</button>
@@ -2254,8 +2190,10 @@ onBeforeUnmount(() => {
 .topTabs {
   flex: none; display: flex; align-items: center; gap: 4px;
   padding: 8px 24px 0; border-bottom: 1px solid var(--line);
+  overflow-x: auto; scrollbar-width: thin;
 }
 .topTabs button {
+  flex: none; white-space: nowrap;
   background: none; border: none; color: var(--dim); font-family: inherit;
   font-size: 13.5px; padding: 10px 14px; cursor: pointer;
   border-bottom: 2px solid transparent; transition: color .15s;
@@ -2272,6 +2210,12 @@ onBeforeUnmount(() => {
   padding: 18px 24px 32px;
   display: flex; flex-direction: column; gap: 18px;
 }
+.stage.isKline { overflow: hidden; }
+.stage.isKline .detail {
+  flex: 1; min-height: 420px; display: flex; flex-direction: column;
+  padding: 12px 16px 14px;
+}
+.klinePane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* ===== 操盘笔记专属布局: 消除外层舞台滚动条，仅在编辑区内部滚动 ===== */
 .stage.isNote {
   overflow: hidden;
@@ -2426,6 +2370,49 @@ onBeforeUnmount(() => {
 .sCap { font-size: 11px; color: var(--dim); }
 .stat b { font-family: var(--mono); font-size: 17px; font-weight: 650; }
 
+.fundHero {
+  display: flex; align-items: center; gap: 42px;
+  padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--panel-2);
+}
+.fundMain, .fundRatio { display: flex; flex-direction: column; gap: 6px; }
+.fundMain > span, .fundRatio > span { color: var(--dim); font-size: 12px; }
+.fundMain strong { font-family: var(--mono); font-size: 30px; line-height: 1; font-weight: 700; }
+.fundRatio { padding-left: 32px; border-left: 1px solid var(--line); }
+.fundRatio b { font-family: var(--mono); font-size: 20px; }
+.orderGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
+.orderCard { padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+.orderCard > span { display: flex; align-items: baseline; gap: 7px; font-size: 12px; }
+.orderCard i { color: var(--dim); font-size: 10px; font-style: normal; }
+.orderCard b { display: block; margin-top: 7px; font-family: var(--mono); font-size: 16px; }
+.fundLoading { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; color: var(--dim); font-size: 11px; }
+.periodStrip {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;
+  margin-top: 14px; padding: 12px 4px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.periodStrip > div { display: flex; flex-direction: column; gap: 5px; }
+.periodStrip span { color: var(--dim); font-size: 11px; }
+.periodStrip b { font-family: var(--mono); font-size: 13px; }
+.fundSecondary { margin-top: 20px; padding-top: 2px; border-top: 1px solid var(--line); }
+.tickBasis { color: var(--dim); font-size: 11px; line-height: 1.8; margin-bottom: 12px; }
+.bigMoneyFilters { margin-left: auto; display: inline-flex; gap: 4px; }
+.bigMoneyFilters button {
+  border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px;
+  background: var(--panel-2); color: var(--dim); font-family: inherit; font-size: 11px; cursor: pointer;
+}
+.bigMoneyFilters button.on { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+.bigMoneyWrap { overflow-x: auto; }
+.bigMoneyTbl { width: 100%; min-width: 580px; border-collapse: collapse; }
+.bigMoneyTbl th, .bigMoneyTbl td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.bigMoneyTbl th { color: var(--dim); font-size: 11px; font-weight: 500; }
+.bigMoneyTbl th:first-child, .bigMoneyTbl td:first-child,
+.bigMoneyTbl th:nth-child(2), .bigMoneyTbl td:nth-child(2) { text-align: left; }
+.bigMoneyTbl td { font: 12px var(--mono); }
+.moneyDirection { display: inline-block; padding: 2px 7px; border-radius: 5px; font-family: inherit; font-size: 11px; }
+.moneyDirection.bull { color: var(--up); background: color-mix(in srgb, var(--up) 10%, transparent); }
+.moneyDirection.bear { color: var(--down); background: color-mix(in srgb, var(--down) 10%, transparent); }
+.moneyDirection.neutral { color: var(--dim); background: var(--panel-2); }
+
 .mfChart { width: 100%; height: 190px; display: block; }
 .mfZero { stroke: var(--line-strong); stroke-width: 1; }
 .mfChart rect.in { fill: var(--up); }
@@ -2436,7 +2423,7 @@ onBeforeUnmount(() => {
 .lg.in { background: var(--up); } .lg.out { background: var(--down); }
 
 .mfTblWrap { overflow-x: auto; }
-.mfTbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.mfTbl { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 12px; }
 .mfTbl th, .mfTbl td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .mfTbl th { color: var(--dim); font-weight: 500; font-size: 11px; letter-spacing: .04em; }
 .mfTbl td { font-family: var(--mono); font-size: 12px; }
@@ -2969,7 +2956,16 @@ onBeforeUnmount(() => {
   .desk { grid-template-columns: 1fr; height: auto; overflow: visible; margin: 0; }
   .rail { border-right: none; border-bottom: 1px solid var(--line); max-height: 45vh; }
   .main { overflow: visible; }
+  .topTabs { padding-left: 0; padding-right: 0; }
+  .topMeta { display: none; }
   .stage { overflow: visible; padding: 16px 0 24px; }
+  .stage.isKline { overflow: visible; }
+  .stage.isKline .detail { flex: none; height: 540px; min-height: 0; padding: 12px; }
+  .fundHero { gap: 24px; padding: 16px; }
+  .fundMain strong { font-size: 25px; }
+  .fundRatio { padding-left: 20px; }
+  .orderGrid { grid-template-columns: 1fr 1fr; }
+  .periodStrip { grid-template-columns: repeat(2, 1fr); gap: 12px; }
   .heroKv { margin-left: 0; gap: 18px; }
   .kvGrid { grid-template-columns: 1fr 1fr; }
   .kv2.wide { grid-column: span 2; }

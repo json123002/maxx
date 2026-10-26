@@ -153,19 +153,30 @@ def test_quote_meta_stats(client):
 
 
 # ===== 涨跌停判定（最新价 vs 东财涨/跌停价）=====
-def test_analysis_context_uses_full_market(client):
-    h = login(client, "admin", "admin123")
-    # 筛选只命中创业板一只，个股分析背景仍覆盖全市场和完整银行行业。
-    assert client.get("/api/quote/list?tmin=20", headers=h).json()["total"] == 1
-    r = client.get("/api/quote/context/600003", headers=h)
-    assert r.status_code == 200
-    d = r.json()
-    assert d["market"]["stats"]["valid"] == 4
-    assert d["industry"]["n"] == 2
-    assert d["industry"]["up"] == 0
-    assert client.get("/api/quote/context/600003").status_code == 401
-    assert client.get("/api/quote/context/999999", headers=h).json()["industry"] is None
-def test_tick_details_metadata_and_errors(client, monkeypatch):
+def test_funds_requires_owned_source_and_sanitizes_errors(client, monkeypatch):
+    from app import funds
+    admin = login(client, "admin", "admin123")
+    uid = _mkuser(client, admin, "fundsviewer", "funds123456")
+    try:
+        h = login(client, "fundsviewer", "funds123456")
+        assert client.get("/api/desk/funds/600293").status_code == 401
+        assert client.get("/api/desk/funds/600293", headers=h).status_code == 400
+        secret = "TEST-FUNDS-CREDENTIAL"
+        client.post("/api/quotesettings", headers=h,
+                    json={"name": "test funds", "provider": "mairui", "licence": secret})
+        def fail(code, source):
+            assert source["user_id"] == uid
+            raise RuntimeError("https://upstream/" + secret)
+        monkeypatch.setattr(funds, "get_dataset", fail)
+        r = client.get("/api/desk/funds/600293", headers=h)
+        assert r.status_code == 502
+        assert secret not in r.text
+        assert client.get("/api/desk/funds/920002", headers=h).status_code == 400
+        assert client.get("/api/desk/funds/600293?side=unknown", headers=h).status_code == 422
+    finally:
+        client.delete(f"/api/admin/users/{uid}", headers=admin)
+
+
 def test_add_stock_directly_to_owned_desk_group(client):
     admin = login(client, "admin", "admin123")
     uid = _mkuser(client, admin, "deskpicker", "picker123456")
@@ -192,6 +203,7 @@ def test_add_stock_directly_to_owned_desk_group(client):
         client.delete(f"/api/admin/users/{other_uid}", headers=admin)
 
 
+def test_tick_details_metadata_and_errors(client, monkeypatch):
     from app import ticks
     h = login(client, "admin", "admin123")
     payload = {"rows": [{"time": "14:59:00", "amount": 123000}],
@@ -208,6 +220,18 @@ def test_add_stock_directly_to_owned_desk_group(client):
     assert "upstream" not in r.text
 
 
+def test_analysis_context_uses_full_market(client):
+    h = login(client, "admin", "admin123")
+    # 筛选只命中创业板一只，个股分析背景仍覆盖全市场和完整银行行业。
+    assert client.get("/api/quote/list?tmin=20", headers=h).json()["total"] == 1
+    r = client.get("/api/quote/context/600003", headers=h)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["market"]["stats"]["valid"] == 4
+    assert d["industry"]["n"] == 2
+    assert d["industry"]["up"] == 0
+    assert client.get("/api/quote/context/600003").status_code == 401
+    assert client.get("/api/quote/context/999999", headers=h).json()["industry"] is None
 
 
 def test_limit_flags():

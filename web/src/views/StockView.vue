@@ -11,8 +11,9 @@ import { cls, fmtN, fmtYiT } from "../utils/format";
 import { fetchKline, fetchMoneyFlow } from "../analysis/data";
 import { inWatch, loadWatchCodes, toggleWatch } from "../stores/watchlist";
 import AnalysisModal from "../analysis/AnalysisModal.vue";
-import KChart from "../stock/KChart.vue";
 import AddToDeskButton from "../components/AddToDeskButton.vue";
+import FundsPanel from "../components/FundsPanel.vue";
+import StockKline from "../stock/StockKline.vue";
 import MinuteChart from "../stock/MinuteChart.vue";
 import { activePersonalSource, loadQuoteSource } from "../stores/quotesource";
 import { updateTabTitle } from "../stores/tabs";
@@ -46,7 +47,7 @@ function pickChart(mode) {
     chartMode.value = "m";
     loadIntraday();
   } else {
-    chartMode.value = "d";
+    chartMode.value = mode;
   }
 }
 
@@ -214,8 +215,8 @@ function goBack() {
           <path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z" />
         </svg>
       </button>
-      <button class="pill" @click="anaRef && anaRef.open(code)">分析</button>
       <AddToDeskButton v-if="quote" :key="code" :code="String(code)" />
+      <button class="pill" @click="anaRef && anaRef.open(code)">分析</button>
     </div>
 
     <div v-if="notFound" class="empty">未找到该股票，可能已退市或代码有误</div>
@@ -227,18 +228,21 @@ function goBack() {
           <button class="tabBtn" :class="{ on: chartMode === 'm', off: !hasSource }"
                   :title="hasSource ? '5分钟分时,来自启用的行情源' : '需要启用自己的行情源(或公共源)'"
                   @click="pickChart('m')">分时</button>
-          <button class="tabBtn" :class="{ on: chartMode === 'd' }" @click="pickChart('d')">日K</button>
+          <button class="tabBtn" :class="{ on: chartMode === 'd' }" @click="pickChart('d')">K线</button>
+          <button class="tabBtn" :class="{ on: chartMode === 'f' }" @click="pickChart('f')">资金</button>
         </div>
-        <div class="chartBody">
-          <MinuteChart v-if="chartMode === 'm'"
+        <div class="chartBody" :class="{ chartKline: chartMode === 'd', chartFunds: chartMode === 'f' }">
+          <FundsPanel v-if="chartMode === 'f'" :code="String(code)" />
+          <MinuteChart v-else-if="chartMode === 'm'"
                        :points="minData?.points || []" :prev-close="minData?.prev_close ?? null"
                        :date="minData?.date || ''" :source="minData?.source || ''"
                        :loading="minLoading" />
-          <KChart v-else :bars="bars" :loading="kLoading" />
+          <StockKline v-else :code="code" :daily-bars="bars" :daily-loading="kLoading"
+                      :daily-source="kSrc" compact />
         </div>
       </div>
 
-      <aside class="sideCol">
+      <aside v-show="chartMode !== 'f'" class="sideCol">
         <!-- 关键价位 -->
         <section class="sideBlk">
           <div class="sideHead">
@@ -355,7 +359,7 @@ function goBack() {
   background: var(--panel); overflow: hidden;
   display: flex; flex-direction: column;
 }
-/* 分时/日K 页签 */
+/* 分时/K线页签 */
 .chartTabs {
   display: flex; gap: 4px; padding: 10px 12px 0; flex-shrink: 0;
 }
@@ -368,6 +372,8 @@ function goBack() {
 .tabBtn.on { color: var(--txt); font-weight: 650; border-color: var(--line-strong); }
 .tabBtn.off { opacity: .55; }
 .chartBody { flex: 1; min-height: 0; }
+.chartKline { padding: 10px 12px 12px; }
+.chartFunds { padding: 18px; overflow-y: auto; }
 .sideCol {
   width: 320px; flex-shrink: 0; overflow-y: auto; min-height: 0;
   scrollbar-width: thin; scrollbar-color: var(--scroll) transparent;
