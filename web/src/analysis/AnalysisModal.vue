@@ -49,6 +49,7 @@
 /* ===== 个股分析弹窗(移植自旧 screener-analysis.js 的 openAnalysis/closeAnalysis/renderTabs)===== */
 import { ref, computed, onBeforeUnmount } from "vue";
 import { message } from "ant-design-vue";
+import { api } from "../api/client";
 import { fmtN, cls } from "../utils/format";
 import { fetchKline, fetchMoneyFlow, fetchIndexKline, KLINE_DAYS } from "./data";
 import { smaLast, rsiWilder, macdLast } from "./indicators";
@@ -56,7 +57,7 @@ import { computeChips } from "./chips";
 import KChart from "../stock/KChart.vue";
 import ChipChart from "../stock/ChipChart.vue";
 import {
-  computeSentiment, stockHeat,
+  sentimentFromStats, stockHeat,
   evalTrend, evalStartup, evalOversold, eval3030, evalMoneyFlow, evalFundamental, evalOverall,
 } from "./strategies";
 
@@ -85,6 +86,7 @@ const turnoverModeNote = computed(() => {
 });
 
 function close() {
+  openVersion++;
   visible.value = false;
   unbindEsc();
 }
@@ -110,16 +112,19 @@ function onBodyClick(e) {
 }
 
 // body 过渡:淡出 loading → 替换内容 → 淡入
-async function swapBody(apply) {
+async function swapBody(apply, version) {
   fading.value = true;
   await new Promise(r => setTimeout(r, 220));
+  if (version !== openVersion) return;
   apply();
   fading.value = false;
   entering.value = true;
   setTimeout(() => { entering.value = false; }, 320);
 }
 
+let openVersion = 0;
 async function open(code) {
+  const version = ++openVersion;
   const row = props.rows.find(r => r.f12 === code);
   if (!row) { message.warning("未找到该股票数据"); return; }
   head.value = {
@@ -139,20 +144,22 @@ async function open(code) {
   visible.value = true;
   bindEsc();
 
-  let bars = null, mf = null, idx = null, klineErr = null, src = "";
+  let bars = null, mf = null, idx = null, klineErr = null, src = "", context = null;
   const jobs = [
     fetchKline(code, KLINE_DAYS).then(r => { bars = r.bars; src = r.source; }).catch(e => { klineErr = e; }),
     fetchMoneyFlow(code).then(m => { mf = m; }).catch(() => {}),
     fetchIndexKline().then(i => { idx = i; }),
+    api("/api/quote/context/" + code).then(d => { context = d; }).catch(() => {}),
   ];
   await Promise.all(jobs);
+  if (version !== openVersion) return;
 
   if (!bars || bars.length < 30) {
     await swapBody(() => {
       errorMsg.value = `日K数据获取失败${klineErr ? "（" + klineErr.message + "）" : ""}，可能接口限流，请稍后重试`;
       mods.value = [evalFundamental({ row })];
       phase.value = "error";
-    });
+    }, version);
     return;
   }
 
@@ -174,20 +181,23 @@ async function open(code) {
   const today = `${_t.getFullYear()}-${String(_t.getMonth() + 1).padStart(2, "0")}-${String(_t.getDate()).padStart(2, "0")}`;
   const basis = kDate === today ? "日K含今日实时K" : `日K截至 ${kDate}，现价用筛选快照 ${fmtN(price)} 校正`;
 
-  const modsArr = [evalTrend(ctx), evalStartup(ctx), evalOversold(ctx), eval3030(ctx), evalMoneyFlow(ctx), evalFundamental(ctx)];
+  const unadjusted = src.includes("不复权");
+  const modsArr = unadjusted
+    ? [evalMoneyFlow(ctx), evalFundamental(ctx)]
+    : [evalTrend(ctx), evalStartup(ctx), evalOversold(ctx), eval3030(ctx), evalMoneyFlow(ctx), evalFundamental(ctx)];
   // 情绪变量：市场温度（全市场快照+指数量能）· 板块共振（同行业今日表现）· 个股情绪（涨停/连板）
-  const senti = computeSentiment(props.rows, idx);
-  const peers = row.f100 ? props.rows.filter(r => r.f100 === row.f100) : [];
-  const peersUp = peers.filter(r => typeof r.f3 === "number" && r.f3 > 3).length;
-  const reso = peers.length ? { name: row.f100, n: peers.length, up: peersUp, ratio: peersUp / peers.length } : null;
+  const senti = sentimentFromStats(context?.market?.stats, idx);
+  const reso = context?.industry || null;
   const heat = stockHeat(bars, code);
-  const all = [evalOverall(ctx, modsArr, senti, reso, heat), ...modsArr];   // 综合分析页签置顶
+  const all = unadjusted ? modsArr : [evalOverall(ctx, modsArr, senti, reso, heat), ...modsArr];
+  if (unadjusted) chipsRef.value = null;
   await swapBody(() => {
     klineSrc.value = src;
-    basisNote.value = basis;
+    basisNote.value = basis + (unadjusted ? " · 不复权降级：暂停形态、支撑压力与筹码结论" : "")
+      + (context ? " · 情绪与行业统计来自完整市场快照" : " · 市场背景加载失败，未使用候选池代替");
     mods.value = all;
     phase.value = "ready";
-  });
+  }, version);
 }
 
 defineExpose({ open });

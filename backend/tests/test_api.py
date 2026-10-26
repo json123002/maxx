@@ -153,6 +153,20 @@ def test_quote_meta_stats(client):
 
 
 # ===== 涨跌停判定（最新价 vs 东财涨/跌停价）=====
+def test_analysis_context_uses_full_market(client):
+    h = login(client, "admin", "admin123")
+    # 筛选只命中创业板一只，个股分析背景仍覆盖全市场和完整银行行业。
+    assert client.get("/api/quote/list?tmin=20", headers=h).json()["total"] == 1
+    r = client.get("/api/quote/context/600003", headers=h)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["market"]["stats"]["valid"] == 4
+    assert d["industry"]["n"] == 2
+    assert d["industry"]["up"] == 0
+    assert client.get("/api/quote/context/600003").status_code == 401
+    assert client.get("/api/quote/context/999999", headers=h).json()["industry"] is None
+
+
 def test_limit_flags():
     assert limit_flags(10.0, 10.0, 8.19) == (1, 0)        # 封涨停
     assert limit_flags(9.0, 10.0, 8.19) == (0, 0)         # 差一截不算
