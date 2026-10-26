@@ -24,10 +24,3 @@ export function rangeVal(min, max) {
   if (!isNaN(a) && !isNaN(b) && a > b) { const t = a; a = b; b = t; }
   return [a, b];
 }
-
-// 个股详情跳转:东方财富(自动区分沪/深/北)
-export function quoteUrl(code) {
-  if (/^6/.test(code)) return "https://quote.eastmoney.com/sh" + code + ".html";
-  if (/^[48]/.test(code)) return "https://quote.eastmoney.com/bj" + code + ".html";
-  return "https://quote.eastmoney.com/sz" + code + ".html";
-}

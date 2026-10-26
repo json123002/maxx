@@ -2,8 +2,9 @@
 /* ===== 结果区:页签 / 排序 / 桌面表格 / 手机卡片 / 无限滚动 / CSV 导出
    (移植自旧 screener-app.js 渲染部分,表格和卡片两套都渲染,显隐由全局 css 媒体查询控制)===== */
 import { computed, inject, onMounted, onUnmounted, reactive, ref } from "vue";
+import { useRouter } from "vue-router";
 import { message } from "ant-design-vue";
-import { cls, fmtN, fmtYiC, fmtYiT, quoteUrl } from "../utils/format";
+import { cls, fmtN, fmtYiC, fmtYiT } from "../utils/format";
 import { fmtMetric, metricCardExtras } from "./metrics";
 import { IS_MOBILE } from "./useScreener";
 import { inWatch, loadWatchCodes, toggleWatch } from "../stores/watchlist";
@@ -11,6 +12,7 @@ import { addBlack, loadBlackCodes } from "../stores/blacklist";
 import ConfirmModal from "../components/ConfirmModal.vue";
 
 const emit = defineEmits(["analysis"]);
+const router = useRouter();
 
 const s = inject("screener");
 const {
@@ -153,7 +155,7 @@ function onTableKeydown(e) {
     if (cur) emit("analysis", cur.f12);
   } else if (e.key === "Enter") {
     const cur = tableRows.value[activeRowIdx.value];
-    if (cur) window.open('/stock/' + cur.f12, '_blank');
+    if (cur) router.push('/stock/' + cur.f12);
   }
 }
 
@@ -224,7 +226,7 @@ onUnmounted(() => {
               </button>
             </td>
             <td class="l">{{ r.f12 }}</td>
-            <td class="l name"><a class="nameLink" :href="quoteUrl(r.f12)" target="_blank" rel="noopener">{{ r.f14 }}</a><span v-if="r.limit_up === 1" class="lmBadge up">涨停</span><span v-else-if="r.limit_down === 1" class="lmBadge down">跌停</span></td>
+            <td class="l name"><router-link class="nameLink" :to="'/stock/' + r.f12">{{ r.f14 }}</router-link><span v-if="r.limit_up === 1" class="lmBadge up">涨停</span><span v-else-if="r.limit_down === 1" class="lmBadge down">跌停</span></td>
             <td>{{ fmtN(r.f2) }}</td>
             <td :class="cls(r.f3)">{{ fmtN(r.f3) }}</td>
             <td><b>{{ fmtN(r.f8) }}</b></td>
@@ -234,6 +236,7 @@ onUnmounted(() => {
             <td>{{ fmtN(r.f9, 1) }}</td>
             <td v-for="d in extraCols" :key="d.k">{{ fmtMetric(d, r[d.k]) }}</td>
             <td class="actCell">
+              <button class="hideRowBtn" title="仅从本次查询隐藏，重新查询后恢复" @click.stop="hideRow(r.f12)">×</button>
               <button class="anaBtn" @click="emit('analysis', r.f12)">分析</button>
               <button class="moreBtn" title="更多操作" @click="openRowMenu($event, r)">⋯</button>
             </td>
@@ -263,7 +266,7 @@ onUnmounted(() => {
     </div>
 
     <div id="list">
-      <a class="card" v-for="r in cardRows" :key="r.f12" :href="quoteUrl(r.f12)" target="_blank" rel="noopener">
+      <router-link class="card" v-for="r in cardRows" :key="r.f12" :to="'/stock/' + r.f12">
         <div class="c1">
           <div class="nm"><b>{{ r.f14 }}</b><span class="cd">{{ r.f12 }}</span><span v-if="r.limit_up === 1" class="lmBadge up">涨停</span><span v-else-if="r.limit_down === 1" class="lmBadge down">跌停</span></div>
           <div class="pr"><b>{{ fmtN(r.f2) }}</b><span class="chg" :class="cls(r.f3)">{{ chgText(r.f3) }}</span></div>
@@ -272,6 +275,7 @@ onUnmounted(() => {
           <span class="tov">换手 {{ fmtN(r.f8) }}%</span>
           <span class="tag" @click.prevent="onTag(r.f100)">{{ r.f100 || "—" }}</span>
           <span class="sub">额 {{ fmtYiC(r.f6) }} · 市值 {{ fmtYiC(r.f20) }} · PE {{ fmtN(r.f9, 1) }}{{ cardExtras(r) }}</span>
+          <button class="hideRowBtn" title="仅从本次查询隐藏，重新查询后恢复" @click.prevent.stop="hideRow(r.f12)">×</button>
           <button class="anaBtn" @click.prevent.stop="emit('analysis', r.f12)">分析</button>
           <button class="moreBtn" title="更多操作" @click.prevent.stop="openRowMenu($event, r)">⋯</button>
           <button class="starBtn" :class="{ on: inWatch(r.f12) }"
@@ -282,7 +286,7 @@ onUnmounted(() => {
             </svg>
           </button>
         </div>
-      </a>
+      </router-link>
     </div>
 
     <div id="indList">
@@ -328,6 +332,12 @@ onUnmounted(() => {
   border-bottom-color: var(--accent) !important;
 }
 .actCell { white-space: nowrap; }
+.hideRowBtn {
+  margin-right: 6px; width: 20px; height: 24px; padding: 0; border: none; border-radius: 6px;
+  background: none; color: var(--up); font-size: 18px; line-height: 1;
+  cursor: pointer; opacity: .65; transition: opacity .15s, background .15s;
+}
+.hideRowBtn:hover { background: var(--hover); opacity: 1; }
 .moreBtn {
   margin-left: 6px; width: 24px; height: 24px; border: none; border-radius: 6px;
   background: none; color: var(--dim); font-size: 14px; line-height: 1;
